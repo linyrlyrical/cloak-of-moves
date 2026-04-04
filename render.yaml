@@ -2,10 +2,8 @@ services:
   - type: web
     name: cloak-of-moves-server
     env: node
-    buildCommand: cd server && npm install
-    startCommand: cd server && npm start
+    buildCommand: npm install && cd server && npm install
+    startCommand: node server/index.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 3000
