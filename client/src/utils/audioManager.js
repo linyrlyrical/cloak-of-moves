@@ -1,19 +1,24 @@
 // 音频管理器 - 管理游戏中的所有音频播放
+import settingsManager from './settingsManager'
+
 class AudioManager {
   constructor() {
     // 音频对象存储
     this.sounds = {}
     this.bgmusic = null
     
-    // 音量设置
-    this.bgmusicVolume = 0.1  // 背景音乐音量较低
-    this.sfxVolume = 0.6      // 音效音量适中
+    // 音量设置 - 从设置管理器读取（使用 ?? 避免 0 被当作 falsy 值）
+    this.bgmusicVolume = settingsManager.getSetting('bgmusicVolume') ?? 0.1
+    this.sfxVolume = settingsManager.getSetting('sfxVolume') ?? 0.6
     
     // 是否已初始化
     this.initialized = false
     
     // 倒计时音效是否正在播放（防止重复播放）
     this.countdownPlaying = false
+    
+    // 监听设置变更
+    this.setupSettingsListeners()
     
     // 音频文件路径
     this.soundPaths = {
@@ -210,6 +215,38 @@ class AudioManager {
   // 播放探查音效
   playScan() {
     this.playSound('scan')
+  }
+  
+  // 设置变更监听器
+  setupSettingsListeners() {
+    // 监听背景音乐音量变更
+    settingsManager.addListener('bgmusicVolume', (newValue) => {
+      this.bgmusicVolume = newValue
+      if (this.bgmusic) {
+        this.bgmusic.volume = newValue
+      }
+    })
+    
+    // 监听音效音量变更
+    settingsManager.addListener('sfxVolume', (newValue) => {
+      this.sfxVolume = newValue
+      Object.values(this.sounds).forEach(sound => {
+        sound.volume = newValue
+      })
+    })
+  }
+  
+  // 获取当前音量设置
+  getVolumes() {
+    return {
+      bgmusicVolume: this.bgmusicVolume,
+      sfxVolume: this.sfxVolume
+    }
+  }
+  
+  // 检查倒计时音效是否启用
+  isCountdownSoundEnabled() {
+    return settingsManager.getSetting('countdownSound')
   }
 }
 

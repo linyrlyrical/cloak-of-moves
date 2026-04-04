@@ -66,6 +66,23 @@
       @selected="onAvatarSelected"
       @close="closeAvatarSelector"
     />
+    
+    <!-- 设置面板 -->
+    <SettingsPanel 
+      :visible="showSettings" 
+      @close="closeSettings" 
+    />
+
+    <!-- 顶部工具栏（右上角） -->
+    <div v-if="['connecting', 'waiting', 'configuring'].includes(gameState.phase)" class="top-toolbar">
+      <div class="settings-btn" @click="openSettings" title="设置">
+        ⚙️
+      </div>
+      <div class="main-avatar-display" @click="openAvatarSelector">
+        <AvatarIcon :avatar-id="myAvatarId" size="medium" />
+        <div class="avatar-hint">点击更换</div>
+      </div>
+    </div>
 
     <!-- 游戏规则弹窗 -->
     <div v-if="showRules" class="rules-modal">
@@ -136,13 +153,6 @@
       <h1 class="title">🎭 Cloak of Moves</h1>
       <p class="subtitle">双人对战卡牌游戏</p>
       
-      <!-- 当前形象选择 -->
-      <div class="avatar-select-area" @click="openAvatarSelector">
-        <span class="avatar-label">选择形象:</span>
-        <AvatarIcon :avatar-id="myAvatarId" size="medium" />
-        <span class="avatar-change-hint">点击更换</span>
-      </div>
-      
       <button class="btn rules-btn" @click="showRules = true">📜 查看规则</button>
       
       <div class="connect-form">
@@ -168,12 +178,6 @@
       <h2>房间: {{ currentRoom }}</h2>
       <button @click="copyRoomCode" class="btn btn-copy">📋 复制房间号</button>
       <p v-if="copySuccess" class="copy-success">已复制到剪贴板！</p>
-      
-      <!-- 当前形象显示 -->
-      <div class="waiting-avatar">
-        <span class="avatar-label">你的形象:</span>
-        <AvatarIcon :avatar-id="myAvatarId" size="medium" />
-      </div>
       
       <button class="btn rules-btn" @click="showRules = true">📜 查看规则</button>
       <p class="waiting-text">等待另一名玩家加入...</p>
@@ -252,6 +256,13 @@
         <div class="player-info" :class="{ 'is-opponent': isPlayer1, 'is-priority': !gameState.isPlayer1Priority }">
           <span class="player-name">P2 {{ !gameState.isPlayer1Priority ? '(先手)' : '' }}</span>
           <span class="player-hp">{{ gameState.players?.[1]?.hp || 1 }} ❤️</span>
+        </div>
+      </div>
+
+      <!-- 游戏内设置按钮 -->
+      <div class="game-toolbar">
+        <div class="game-settings-btn" @click="openSettings" title="设置">
+          ⚙️
         </div>
       </div>
 
@@ -393,7 +404,7 @@
           </div>
           
           <p class="cards-tip">
-            {{ isPriorityPlayer ? '调整手牌顺序（对方只能看到第一张）' : '调整手牌顺序' }}
+            {{ isPriorityPlayer ? '调整手牌顺序（对方会看到第一张牌或最后一张牌）' : '调整手牌顺序' }}
           </p>
           <div class="hand-cards">
             <div 
@@ -548,6 +559,7 @@ import { io } from 'socket.io-client'
 import GameBoard from './components/GameBoard.vue'
 import AvatarIcon from './components/AvatarIcon.vue'
 import AvatarSelector from './components/AvatarSelector.vue'
+import SettingsPanel from './components/SettingsPanel.vue'
 import { GAME_CONFIG } from '../../shared/constants.js'
 import { getServerUrl } from './config.js'
 import audioManager from './utils/audioManager'
@@ -557,7 +569,8 @@ export default {
   components: {
     GameBoard,
     AvatarIcon,
-    AvatarSelector
+    AvatarSelector,
+    SettingsPanel
   },
   setup() {
     // Socket连接
@@ -659,6 +672,19 @@ export default {
     const showAvatarSelector = ref(false)
     const player1AvatarId = ref(null)
     const player2AvatarId = ref(null)
+    
+    // 设置面板相关
+    const showSettings = ref(false)
+    
+    // 打开设置面板
+    const openSettings = () => {
+      showSettings.value = true
+    }
+    
+    // 关闭设置面板
+    const closeSettings = () => {
+      showSettings.value = false
+    }
     
     // 全屏背景样式 - 根据地图主题变化
     const screenBgStyle = computed(() => {
@@ -1447,8 +1473,8 @@ const currentTurn = computed(() => {
           }
         } else {
           selectTimer.value--
-          // 倒计时3秒时播放音效
-          if (selectTimer.value === 3) {
+          // 倒计时3秒时播放音效（需检查设置开关）
+          if (selectTimer.value === 3 && audioManager.isCountdownSoundEnabled()) {
             audioManager.playCountdown3s()
           }
         }
@@ -1468,8 +1494,8 @@ const currentTurn = computed(() => {
           confirmHandOrder()
         } else {
           orderTimer.value--
-          // 倒计时3秒时播放音效
-          if (orderTimer.value === 3) {
+          // 倒计时3秒时播放音效（需检查设置开关）
+          if (orderTimer.value === 3 && audioManager.isCountdownSoundEnabled()) {
             audioManager.playCountdown3s()
           }
         }
@@ -1710,7 +1736,11 @@ const currentTurn = computed(() => {
       player2AvatarId,
       openAvatarSelector,
       onAvatarSelected,
-      closeAvatarSelector
+      closeAvatarSelector,
+      // 设置面板相关
+      showSettings,
+      openSettings,
+      closeSettings
     }
   }
 }
@@ -2603,6 +2633,11 @@ html, body {
   color: #333;
 }
 
+.rules-content .btn {
+  display: block;
+  margin: 1rem auto 0;
+}
+
 .rules-content h2 {
   text-align: center;
   margin-bottom: 1.5rem;
@@ -3245,9 +3280,10 @@ html, body {
   top: 1.5rem;
   right: 1.5rem;
   display: flex;
+  flex-direction: column;  /* 垂直布局，与 main-avatar-display 保持一致 */
   align-items: center;
-  gap: 0.8rem;
-  padding: 0.8rem 1.5rem;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
   background: rgba(255, 255, 255, 0.15);
   border-radius: 12px;
   border: 2px solid rgba(255, 255, 255, 0.3);
@@ -3258,5 +3294,85 @@ html, body {
   font-size: 1rem;
   color: white;
   font-weight: 500;
+}
+
+/* 顶部工具栏样式 - 右上角固定 */
+.top-toolbar {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  z-index: 100;
+}
+
+.settings-btn {
+  width: 48px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.5rem;
+  transition: all 0.3s;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.settings-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: rotate(30deg) scale(1.1);
+}
+
+.main-avatar-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.main-avatar-display:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+}
+
+.avatar-hint {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 0.25rem;
+}
+
+/* 游戏内工具栏样式 */
+.game-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.game-settings-btn {
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s;
+}
+
+.game-settings-btn:hover {
+  transform: rotate(30deg) scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 </style>

@@ -580,32 +580,37 @@ class Match {
     }
     
     // 根据地图条件决定可用的探查牌
-    const scoutCards = []
-    const minDimension = Math.min(this.map.width, this.map.height)
-    
-    // 只有地图有多列时才提供行探查（行探查照亮整行）
-    if (this.map.width > 1) {
-      scoutCards.push('SCOUT_ROW')
-    }
-    
-    // 只有地图有多行时才提供列探查（列探查照亮整列）
-    if (this.map.height > 1) {
-      scoutCards.push('SCOUT_COL')
-    }
-    
-    // 只有地图短边 >= 5 时才提供环绕探查
-    if (minDimension >= 5) {
-      scoutCards.push('SCOUT_AROUND')
-    }
-    
-    // 只有有可用探查牌时才添加到卡牌池
-    if (scoutCards.length > 0) {
-      for (let i = 0; i < scoutRatio; i++) {
-        cardPool.push(...scoutCards)
-      }
-      console.log(`[发牌] 可用探查牌: ${scoutCards.map(c => CARD_TYPES[c].name).join(', ')} (地图: ${this.map.width}x${this.map.height}, 短边: ${minDimension})`)
+    // 如果迷雾效果关闭，则不提供探查牌
+    if (!this.fogEnabled) {
+      console.log(`[发牌] 迷雾效果已关闭，不提供探查牌`)
     } else {
-      console.log(`[发牌] 当前地图不提供探查牌 (地图: ${this.map.width}x${this.map.height})`)
+      const scoutCards = []
+      const minDimension = Math.min(this.map.width, this.map.height)
+      
+      // 只有地图有多列时才提供行探查（行探查照亮整行）
+      if (this.map.width > 1) {
+        scoutCards.push('SCOUT_ROW')
+      }
+      
+      // 只有地图有多行时才提供列探查（列探查照亮整列）
+      if (this.map.height > 1) {
+        scoutCards.push('SCOUT_COL')
+      }
+      
+      // 只有地图短边 >= 5 时才提供环绕探查
+      if (minDimension >= 5) {
+        scoutCards.push('SCOUT_AROUND')
+      }
+      
+      // 只有有可用探查牌时才添加到卡牌池
+      if (scoutCards.length > 0) {
+        for (let i = 0; i < scoutRatio; i++) {
+          cardPool.push(...scoutCards)
+        }
+        console.log(`[发牌] 可用探查牌: ${scoutCards.map(c => CARD_TYPES[c].name).join(', ')} (地图: ${this.map.width}x${this.map.height}, 短边: ${minDimension})`)
+      } else {
+        console.log(`[发牌] 当前地图不提供探查牌 (地图: ${this.map.width}x${this.map.height})`)
+      }
     }
     
     // 尝试生成合理的卡牌，最多尝试10次
