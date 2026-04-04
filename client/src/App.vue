@@ -60,6 +60,13 @@
       </div>
     </div>
 
+    <!-- 角色形象选择弹窗 -->
+    <AvatarSelector 
+      v-if="showAvatarSelector" 
+      @selected="onAvatarSelected"
+      @close="closeAvatarSelector"
+    />
+
     <!-- 游戏规则弹窗 -->
     <div v-if="showRules" class="rules-modal">
       <div class="rules-content">
@@ -71,10 +78,30 @@
         <div class="rules-section">
           <h3>🃏 卡牌类型</h3>
           <ul>
-            <li><strong>移动牌</strong>：控制角色向指定方向移动一格</li>
-            <li><strong>攻击牌</strong>：对指定方向造成伤害（1格或2格距离）</li>
-            <li><strong>防御牌</strong>：抵消下一次受到的攻击</li>
+            <li><strong>移动牌 ↑→↓←</strong>：控制角色向指定方向移动一格</li>
+            <li><strong>攻击牌 ⚔</strong>：对指定方向造成伤害（1格或2格距离）</li>
+            <li><strong>防御牌 🛡</strong>：抵消下一次受到的攻击</li>
+            <li><strong>探查牌 👁</strong>：
+              <ul class="sub-list">
+                <li>行探查 👁↔：照亮你所在行的所有格子</li>
+                <li>列探查 👁↕：照亮你所在列的所有格子</li>
+                <li>环绕探查 👁：扩大你的视野范围至1.5格</li>
+              </ul>
+            </li>
           </ul>
+        </div>
+        <div class="rules-section">
+          <h3>🗺 地图元素</h3>
+          <ul>
+            <li><strong>障碍物</strong>：无法通过的格子，移动和攻击都会被阻挡</li>
+            <li><strong>传送门 🔴🟡🔵</strong>：成对出现，踏入入口会传送至对应出口</li>
+            <li><strong>迷雾</strong>：视野限制，只能看到周围一定范围内的区域</li>
+          </ul>
+        </div>
+        <div class="rules-section">
+          <h3>🌍 地图主题</h3>
+          <p class="theme-list">🌲 森林 · 🏜️ 沙漠 · ❄️ 冰原 · 🌋 火山 · 🏛️ 古城</p>
+          <p class="theme-note">每局随机选择一种主题，不同主题有独特的视觉效果</p>
         </div>
         <div class="rules-section">
           <h3>📋 游戏流程</h3>
@@ -108,6 +135,14 @@
     <div v-if="gameState.phase === 'connecting'" class="connect-screen">
       <h1 class="title">🎭 Cloak of Moves</h1>
       <p class="subtitle">双人对战卡牌游戏</p>
+      
+      <!-- 当前形象选择 -->
+      <div class="avatar-select-area" @click="openAvatarSelector">
+        <span class="avatar-label">选择形象:</span>
+        <AvatarIcon :avatar-id="myAvatarId" size="medium" />
+        <span class="avatar-change-hint">点击更换</span>
+      </div>
+      
       <button class="btn rules-btn" @click="showRules = true">📜 查看规则</button>
       
       <div class="connect-form">
@@ -133,6 +168,13 @@
       <h2>房间: {{ currentRoom }}</h2>
       <button @click="copyRoomCode" class="btn btn-copy">📋 复制房间号</button>
       <p v-if="copySuccess" class="copy-success">已复制到剪贴板！</p>
+      
+      <!-- 当前形象显示 -->
+      <div class="waiting-avatar">
+        <span class="avatar-label">你的形象:</span>
+        <AvatarIcon :avatar-id="myAvatarId" size="medium" />
+      </div>
+      
       <button class="btn rules-btn" @click="showRules = true">📜 查看规则</button>
       <p class="waiting-text">等待另一名玩家加入...</p>
       <div class="loading-spinner"></div>
@@ -157,12 +199,35 @@
             {{ typeof size === 'string' ? size.replace('x', '×') : `${size}×${size}` }}
           </button>
         </div>
+        
+        <!-- 迷雾效果开关 -->
+        <div class="fog-selection">
+          <p>迷雾效果：</p>
+          <div class="fog-options">
+            <button 
+              class="btn fog-option-btn"
+              :class="{ 'selected': selectedFogEnabled }"
+              @click="selectedFogEnabled = true"
+            >
+              启用
+            </button>
+            <button 
+              class="btn fog-option-btn"
+              :class="{ 'selected': !selectedFogEnabled }"
+              @click="selectedFogEnabled = false"
+            >
+              关闭
+            </button>
+          </div>
+<p class="fog-hint">迷雾会增加游戏难度，限制视野范围</p>
+        </div>
+        
         <button 
           class="btn btn-primary confirm-map-btn" 
           :disabled="!selectedMapSize"
           @click="confirmMapSize"
         >
-          确认地图大小
+          确认配置
         </button>
       </div>
       
@@ -196,7 +261,8 @@
         <div class="player-side-panel left-panel" :class="{ 'is-me': isPlayer1 }">
           <div class="panel-player-label">P1</div>
           <div class="panel-character">
-            <div class="character-avatar blue-avatar">
+            <AvatarIcon v-if="player1AvatarId" :avatar-id="player1AvatarId" size="large" />
+            <div v-else class="character-avatar blue-avatar">
               <span class="avatar-icon">⚔️</span>
             </div>
           </div>
@@ -214,12 +280,13 @@
         
         <!-- 游戏棋盘 -->
         <div class="board-container">
-          <GameBoard 
+<GameBoard 
             ref="gameBoardRef"
             :map="gameState.map" 
             :players="gameState.players"
             :is-player1="isPlayer1"
             :theme="currentTheme"
+            :fog-enabled="gameState.fogEnabled"
           />
         </div>
         
@@ -227,7 +294,8 @@
         <div class="player-side-panel right-panel" :class="{ 'is-me': !isPlayer1 }">
           <div class="panel-player-label">P2</div>
           <div class="panel-character">
-            <div class="character-avatar red-avatar">
+            <AvatarIcon v-if="player2AvatarId" :avatar-id="player2AvatarId" size="large" />
+            <div v-else class="character-avatar red-avatar">
               <span class="avatar-icon">🛡️</span>
             </div>
           </div>
@@ -478,6 +546,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { io } from 'socket.io-client'
 import GameBoard from './components/GameBoard.vue'
+import AvatarIcon from './components/AvatarIcon.vue'
+import AvatarSelector from './components/AvatarSelector.vue'
 import { GAME_CONFIG } from '../../shared/constants.js'
 import { getServerUrl } from './config.js'
 import audioManager from './utils/audioManager'
@@ -485,7 +555,9 @@ import audioManager from './utils/audioManager'
 export default {
   name: 'App',
   components: {
-    GameBoard
+    GameBoard,
+    AvatarIcon,
+    AvatarSelector
   },
   setup() {
     // Socket连接
@@ -530,8 +602,13 @@ export default {
     // 地图配置相关
     const mapSizeOptions = ref(GAME_CONFIG.MAP_SIZE_OPTIONS)
     const selectedMapSize = ref(null)
+    const selectedFogEnabled = ref(true)  // 默认选择"有"迷雾
     const creatorId = ref('')
-    const isCreator = computed(() => socketId.value === creatorId.value)
+    const isCreator = computed(() => {
+      const result = socketId.value === creatorId.value
+      console.log('[客户端] isCreator计算:', { socketId: socketId.value, creatorId: creatorId.value, result })
+      return result
+    })
     
     // 正在打出的牌（用于显示动画）
     const playingCard = ref(null)
@@ -576,6 +653,12 @@ export default {
     
     // 地图主题
     const currentTheme = ref(null)
+    
+    // 角色形象相关
+    const myAvatarId = ref(localStorage.getItem('myAvatarId') || 'male_knight')
+    const showAvatarSelector = ref(false)
+    const player1AvatarId = ref(null)
+    const player2AvatarId = ref(null)
     
     // 全屏背景样式 - 根据地图主题变化
     const screenBgStyle = computed(() => {
@@ -793,6 +876,13 @@ const currentTurn = computed(() => {
           ...gameState.value, 
           ...data, 
           phase: data.phase || 'dealing' 
+        }
+        // 保存玩家形象ID
+        if (data.players && data.players[0]) {
+          player1AvatarId.value = data.players[0].avatarId
+        }
+        if (data.players && data.players[1]) {
+          player2AvatarId.value = data.players[1].avatarId
         }
         // 保存主题数据并显示地图名称
         if (data.theme) {
@@ -1251,7 +1341,7 @@ const currentTurn = computed(() => {
     // 房间操作
     const createRoom = () => {
       audioManager.playClick()
-      socket.value.emit('create_room')
+      socket.value.emit('create_room', { avatarId: myAvatarId.value })
     }
     
     const joinRoom = () => {
@@ -1260,7 +1350,7 @@ const currentTurn = computed(() => {
         return
       }
       audioManager.playClick()
-      socket.value.emit('join_room', roomCode.value)
+      socket.value.emit('join_room', { roomCode: roomCode.value, avatarId: myAvatarId.value })
     }
     
     // 卡牌选择
@@ -1471,8 +1561,26 @@ const currentTurn = computed(() => {
     
     const confirmMapSize = () => {
       if (!selectedMapSize.value) return
-      console.log('[客户端] 确认地图大小:', selectedMapSize.value)
-      socket.value.emit('map_size_selected', selectedMapSize.value)
+      console.log('[客户端] 确认地图配置:', selectedMapSize.value, '迷雾:', selectedFogEnabled.value)
+      socket.value.emit('map_size_selected', { 
+        mapSize: selectedMapSize.value, 
+        fogEnabled: selectedFogEnabled.value 
+      })
+    }
+    
+    // 形象选择相关
+    const openAvatarSelector = () => {
+      showAvatarSelector.value = true
+    }
+    
+    const onAvatarSelected = (avatarId) => {
+      myAvatarId.value = avatarId
+      localStorage.setItem('myAvatarId', avatarId)
+      showAvatarSelector.value = false
+    }
+    
+    const closeAvatarSelector = () => {
+      showAvatarSelector.value = false
     }
     
     // 选择查看对手手牌
@@ -1551,6 +1659,7 @@ const currentTurn = computed(() => {
       // 地图配置相关
       mapSizeOptions,
       selectedMapSize,
+      selectedFogEnabled,
       creatorId,
       isCreator,
       selectMapSize,
@@ -1593,7 +1702,15 @@ const currentTurn = computed(() => {
       showMapName,
       currentTheme,
       // 全屏背景样式
-      screenBgStyle
+      screenBgStyle,
+      // 角色形象相关
+      myAvatarId,
+      showAvatarSelector,
+      player1AvatarId,
+      player2AvatarId,
+      openAvatarSelector,
+      onAvatarSelected,
+      closeAvatarSelector
     }
   }
 }
@@ -2378,6 +2495,56 @@ html, body {
   box-shadow: 0 6px 20px rgba(0,0,0,0.2);
 }
 
+/* 迷雾效果选择 */
+.fog-selection {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+
+.fog-selection p {
+  font-size: 1.2rem;
+  margin-bottom: 0.8rem;
+}
+
+.fog-options {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.fog-option-btn {
+  width: 100px;
+  height: 50px;
+  font-size: 1.1rem;
+  background: white;
+  color: #667eea;
+  border: 3px solid transparent;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fog-option-btn.selected {
+  background: #48bb78;
+  color: white;
+  border-color: #38a169;
+}
+
+.fog-option-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+}
+
+.fog-hint {
+  font-size: 0.9rem !important;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
 .confirm-map-btn {
   padding: 1rem 3rem;
   font-size: 1.1rem;
@@ -2457,6 +2624,33 @@ html, body {
 
 .rules-section li {
   margin-bottom: 0.5rem;
+}
+
+/* 探查牌子列表样式 */
+.rules-section .sub-list {
+  margin-top: 0.3rem;
+  padding-left: 1.2rem;
+}
+
+.rules-section .sub-list li {
+  margin-bottom: 0.3rem;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+/* 地图主题列表样式 */
+.rules-section .theme-list {
+  font-size: 1.2rem;
+  text-align: center;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.1em;
+}
+
+.rules-section .theme-note {
+  font-size: 0.85rem;
+  color: #888;
+  text-align: center;
+  font-style: italic;
 }
 
 .rules-checkbox {
@@ -3008,5 +3202,61 @@ html, body {
 
 .map-name-transition-leave-active {
   animation: fadeOutOverlay 0.5s ease-in;
+}
+
+/* 形象选择区域样式 - 连接界面右上角 */
+.connect-screen .avatar-select-area {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem 1.5rem;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  margin-bottom: 0;
+}
+
+.avatar-select-area:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.avatar-label {
+  font-size: 1rem;
+  color: white;
+  font-weight: 500;
+}
+
+.avatar-change-hint {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-left: 0.5rem;
+}
+
+/* 等待界面形象显示 - 右上角 */
+.waiting-screen .waiting-avatar {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem 1.5rem;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  margin-bottom: 0;
+}
+
+.waiting-avatar .avatar-label {
+  font-size: 1rem;
+  color: white;
+  font-weight: 500;
 }
 </style>

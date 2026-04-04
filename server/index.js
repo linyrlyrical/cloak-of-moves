@@ -30,8 +30,10 @@ io.on('connection', (socket) => {
   console.log(`[连接] ${socket.id} 已连接`)
   
   // 创建房间
-  socket.on('create_room', () => {
+  socket.on('create_room', (data) => {
     console.log(`[事件] ${socket.id} 触发 create_room`)
+    
+    const avatarId = data?.avatarId || null
     
     const roomCode = roomManager.createRoom(socket.id)
     socket.join(roomCode)
@@ -41,14 +43,17 @@ io.on('connection', (socket) => {
     const match = matchManager.createMatch(roomCode)
     console.log(`[Match] 为房间 ${roomCode} 创建Match`)
     
-    matchManager.setPlayer(roomCode, socket.id, 0) // 0 = 玩家1
+    matchManager.setPlayer(roomCode, socket.id, 0, avatarId) // 0 = 玩家1
     
     socket.emit('room_created', roomCode)
     console.log(`[发送] room_created 事件到 ${socket.id}`)
   })
   
   // 加入房间
-  socket.on('join_room', (roomCode) => {
+  socket.on('join_room', (data) => {
+    const roomCode = typeof data === 'string' ? data : data?.roomCode
+    const avatarId = typeof data === 'object' ? data?.avatarId : null
+    
     console.log(`[事件] ${socket.id} 触发 join_room，房间号: ${roomCode}`)
     
     const result = roomManager.joinRoom(socket.id, roomCode)
@@ -59,7 +64,7 @@ io.on('connection', (socket) => {
       console.log(`[Socket] ${socket.id} 加入房间 ${roomCode}`)
       
       // 设置第二个玩家
-      matchManager.setPlayer(roomCode, socket.id, 1) // 1 = 玩家2
+      matchManager.setPlayer(roomCode, socket.id, 1, avatarId) // 1 = 玩家2
       console.log(`[Match] 设置玩家2: ${socket.id}`)
       
       socket.emit('room_joined', {
@@ -87,11 +92,13 @@ io.on('connection', (socket) => {
   })
   
   // 地图大小选择（房主）
-  socket.on('map_size_selected', (size) => {
-    console.log(`[事件] ${socket.id} 选择地图大小: ${size}`)
+  socket.on('map_size_selected', (data) => {
+    console.log(`[事件] ${socket.id} 选择地图配置:`, data)
     const match = matchManager.getMatchBySocket(socket.id)
     if (match) {
-      match.setMapSize(socket.id, size)
+      match.setMapSize(socket.id, data)
+    } else {
+      console.log(`[事件] 未找到匹配的比赛，socket.id: ${socket.id}`)
     }
   })
   

@@ -30,10 +30,10 @@ export class MatchManager {
     this.matches.delete(roomCode)
   }
   
-  setPlayer(roomCode, socketId, playerIndex) {
+  setPlayer(roomCode, socketId, playerIndex, avatarId = null) {
     const match = this.matches.get(roomCode)
     if (match && (playerIndex === 0 || playerIndex === 1)) {
-      match.setPlayer(socketId, playerIndex)
+      match.setPlayer(socketId, playerIndex, avatarId)
     }
   }
   
@@ -70,6 +70,9 @@ class Match {
       configTimeLimit: 30000                // 配置时间限制(ms)
     }
     
+    // 迷雾效果开关
+    this.fogEnabled = GAME_CONFIG.FOG_ENABLED_DEFAULT
+    
     // 初始化地图（支持正方形和单行地图）
     this.map = {
       width: GAME_CONFIG.MAP_SIZE,   // 宽度
@@ -85,6 +88,7 @@ class Match {
     this.playerStates = [
       {
         id: '',
+        avatarId: null,  // 玩家形象ID
         position: { x: 0, y: 0 },
         hp: GAME_CONFIG.INITIAL_HP,
         handCards: [],
@@ -96,6 +100,7 @@ class Match {
       },
       {
         id: '',
+        avatarId: null,  // 玩家形象ID
         position: { x: GAME_CONFIG.MAP_SIZE - 1, y: GAME_CONFIG.MAP_SIZE - 1 },
         hp: GAME_CONFIG.INITIAL_HP,
         handCards: [],
@@ -272,13 +277,14 @@ class Match {
     return -1
   }
   
-  setPlayer(socketId, index) {
+  setPlayer(socketId, index, avatarId = null) {
     if (index !== 0 && index !== 1) {
       console.error(`[错误] 无效的玩家索引: ${index}`)
       return
     }
     this.playerStates[index].id = socketId
-    console.log(`[玩家] 玩家${index + 1}设置为: ${socketId}`)
+    this.playerStates[index].avatarId = avatarId
+    console.log(`[玩家] 玩家${index + 1}设置为: ${socketId}, 形象: ${avatarId || '默认'}`)
     
     // 检查两个玩家是否都已加入
     if (this.playerStates[0].id && this.playerStates[1].id) {
@@ -296,18 +302,26 @@ class Match {
   }
   
   // 设置地图大小（仅房主可调用）
-  setMapSize(socketId, size) {
+  setMapSize(socketId, config) {
     // 只有房主（玩家1）可以设置地图大小
     if (this.playerStates[0].id !== socketId) {
       console.log(`[配置] 非房主尝试设置地图大小，被拒绝`)
       return false
     }
     
+    // 支持传入 size 或 config 对象
+    const size = typeof config === 'object' ? config.mapSize : config
+    const fogEnabled = typeof config === 'object' ? config.fogEnabled : GAME_CONFIG.FOG_ENABLED_DEFAULT
+    
     // 验证地图大小是否在允许范围内
     if (!GAME_CONFIG.MAP_SIZE_OPTIONS.includes(size)) {
       console.error(`[错误] 无效的地图大小: ${size}`)
       return false
     }
+    
+    // 保存迷雾设置
+    this.fogEnabled = fogEnabled
+    console.log(`[配置] 迷雾效果: ${fogEnabled ? '启用' : '关闭'}`)
     
     this.mapConfig.selectedSize = size
     this.mapConfig.isConfigured = true
@@ -1474,15 +1488,19 @@ class Match {
       phase: this.phase,
       currentRound: this.currentRound,
       map: this.map,
+      fogEnabled: this.fogEnabled,
       players: this.playerStates.map((p, i) => ({
         id: p.id,
+        avatarId: p.avatarId,
         position: { ...p.position },
         hp: p.hp,
         handCards: i === 0 ? p.handCards : (i === 1 ? p.handCards : [])
       })),
       turnIndex: this.turnIndex,
       winner: this.winner,
-      isPlayer1Priority: this.isPlayer1Priority
+      isPlayer1Priority: this.isPlayer1Priority,
+      player1AvatarId: this.playerStates[0].avatarId,
+      player2AvatarId: this.playerStates[1].avatarId
     }
   }
   

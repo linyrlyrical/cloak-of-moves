@@ -9,6 +9,7 @@ export const GAME_CONFIG = {
   SELECT_TIME: 30000,             // 卡牌选择时限(ms) - 30秒
   ORDER_TIME: 30000,              // 顺序调整时限(ms) - 30秒
   INITIAL_HP: 1,                  // 初始血量
+  FOG_ENABLED_DEFAULT: false,     // 迷雾效果默认关闭
   SERVER_PORT: 3000,              // 服务器端口
   CLIENT_PORT: 5173               // 客户端端口
 };

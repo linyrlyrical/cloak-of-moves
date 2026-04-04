@@ -2,9 +2,9 @@ services:
   - type: web
     name: cloak-of-moves-server
     env: node
-    plan: free
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production

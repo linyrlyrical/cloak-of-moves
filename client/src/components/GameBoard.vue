@@ -1,3 +1,4 @@
+
 <template>
   <div class="game-board-wrapper" :class="themeClass" :style="themeStyle">
     <!-- 主题背景装饰层 -->
@@ -36,16 +37,16 @@
             'attack-miss': cell.isAttackTarget && !attackEffect?.hit
           }"
         >
-          <!-- 传送门进口 - 增强视觉效果 -->
-          <span v-if="cell.portalEntry" class="portal portal-entry" :class="`portal-${cell.portalEntry}`">
+          <!-- 传送门进口 - 增强视觉效果，玩家站立时半透明 -->
+          <span v-if="cell.portalEntry" class="portal portal-entry" :class="[`portal-${cell.portalEntry}`, { 'with-player': cell.hasPlayer1 || cell.hasPlayer2 }]">
             <span class="portal-outer-ring"></span>
             <span class="portal-inner-ring"></span>
             <span class="portal-core"></span>
             <span class="portal-spiral"></span>
             <span class="portal-arrow">◉</span>
           </span>
-          <!-- 传送门出口 - 独立条件，允许与玩家共存 -->
-          <span v-if="cell.portalExit" class="portal portal-exit" :class="`portal-${cell.portalExit}`">
+          <!-- 传送门出口 - 独立条件，允许与玩家共存，玩家站立时半透明 -->
+          <span v-if="cell.portalExit" class="portal portal-exit" :class="[`portal-${cell.portalExit}`, { 'with-player': cell.hasPlayer1 || cell.hasPlayer2 }]">
             <span class="portal-inner"></span>
             <span class="portal-symbol">○</span>
           </span>
@@ -113,8 +114,8 @@
       </div>
     </template>
     
-<!-- 全局迷雾遮罩层 - 覆盖在所有特效之上 -->
-    <div class="global-fog-container" :style="{ ...getGlobalFogStyle(), ...fogClearMaskStyle }">
+<!-- 全局迷雾遮罩层 - 覆盖在所有特效之上（可配置开关） -->
+    <div v-if="fogEnabled" class="global-fog-container" :style="{ ...getGlobalFogStyle(), ...fogClearMaskStyle }">
 <!-- SVG 噪音滤镜定义 - 统一风格，差异化颗粒 -->
       <svg class="fog-noise-svg">
         <!-- 大颗粒噪音 - 慢速层 -->
@@ -186,6 +187,10 @@ export default {
     theme: {
       type: Object,
       default: null
+    },
+    fogEnabled: {
+      type: Boolean,
+      default: true
     }
   },
   setup(props) {
@@ -216,10 +221,11 @@ export default {
     // 获取拖尾样式
     const getTrailStyle = (trail) => {
       const cellSize = 42
-      const padding = 16
+      const padding = 18  // game-board padding(16px) + grid padding(2px)
+      const centerOffset = 21  // cellSize / 2，居中偏移
       return {
-        left: `${trail.x * cellSize + padding + 20}px`,
-        top: `${trail.y * cellSize + padding + 20}px`,
+        left: `${trail.x * cellSize + padding + centerOffset}px`,
+        top: `${trail.y * cellSize + padding + centerOffset}px`,
         opacity: trail.opacity
       }
     }
@@ -229,7 +235,7 @@ export default {
       if (!attackEffect.value) return {}
       const { from } = attackEffect.value
       const cellSize = 42
-      const padding = 16
+      const padding = 18  // game-board padding(16px) + grid padding(2px)
       return {
         left: `${from.x * cellSize + padding}px`,
         top: `${from.y * cellSize + padding}px`
@@ -245,9 +251,10 @@ export default {
                     direction === 'left' ? {x: -range, y: 0} :
                     {x: range, y: 0}
       const cellSize = 42
+      const centerOffset = 21  // cellSize / 2，居中偏移
       return {
-        '--explosion-x': `${offset.x * cellSize + 20}px`,
-        '--explosion-y': `${offset.y * cellSize + 20}px`
+        '--explosion-x': `${offset.x * cellSize + centerOffset}px`,
+        '--explosion-y': `${offset.y * cellSize + centerOffset}px`
       }
     }
     
@@ -407,12 +414,18 @@ export default {
     const getGlobalFogStyle = () => {
       const width = props.map.width || props.map.size
       const height = props.map.height || props.map.size
-      const cellSize = 42 // 40px格子 + 2px间距
-      const padding = 16 // 1rem padding
+      const cellSize = 42  // 统一：40px格子 + 2px间隙
+      const gridPadding = 2  // grid 内边距
+      const padding = 16   // game-board padding (1rem)
+      
+      // 正确计算：格子总宽 + grid两侧padding
+      // 每行 N 个格子 = N × 40px + (N-1) × 2px gap + 2 × 2px padding = 42N + 2
+      const actualWidth = width * cellSize + gridPadding * 2
+      const actualHeight = height * cellSize + gridPadding * 2
       
       return {
-        width: `${width * cellSize}px`,
-        height: `${height * cellSize}px`,
+        width: `${actualWidth}px`,
+        height: `${actualHeight}px`,
         left: `${padding}px`,
         top: `${padding}px`
       }
@@ -646,11 +659,11 @@ export default {
 }
 
 .cell.player1 {
-  background: #4dabf7;
+  background: #4dabf7 !important;
 }
 
 .cell.player2 {
-  background: #ff6b6b;
+  background: #ff6b6b !important;
 }
 
 .cell.highlight {
@@ -664,6 +677,10 @@ export default {
 }
 
 .player-mark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   color: white;
   font-weight: bold;
   font-size: 1rem;
@@ -674,7 +691,6 @@ export default {
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-  position: relative;
   z-index: 5;
 }
 
@@ -684,6 +700,14 @@ export default {
 
 .player2-mark {
   background: #c92a2a;
+}
+
+/* 玩家在传送门出口上 - 半透明覆盖效果 */
+.player-mark.on-portal-exit {
+  opacity: 0.75;
+  z-index: 6;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3);
+  border: 2px solid rgba(255, 255, 255, 0.7);
 }
 
 @keyframes highlight-pulse {
@@ -731,8 +755,8 @@ export default {
 /* ========== 能量闪光攻击特效 ========== */
 .attack-effect-layer {
   position: absolute;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   pointer-events: none;
   z-index: 25;
 }
@@ -908,10 +932,10 @@ export default {
 /* ========== 闪光扩散特效 ========== */
 .explosion-flash {
   position: absolute;
-  left: var(--explosion-x, 20px);
-  top: var(--explosion-y, 20px);
-  width: 40px;
-  height: 40px;
+  left: var(--explosion-x, 21px);
+  top: var(--explosion-y, 21px);
+  width: 42px;
+  height: 42px;
   transform: translate(-50%, -50%);
   z-index: 30;
   border-radius: 4px;
@@ -990,8 +1014,8 @@ export default {
 /* ========== 金色护盾特效 ========== */
 .shield-overlay {
   position: absolute;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   pointer-events: none;
   z-index: 20;
 }
@@ -2230,14 +2254,23 @@ export default {
 
 /* ========== 传送门样式 ========== */
 .portal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   width: 36px;
   height: 36px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
   z-index: 4;
+}
+
+/* 玩家站立时传送门半透明 */
+.portal.with-player {
+  opacity: 0.35;
+  z-index: 3;
 }
 
 .portal-inner {
@@ -2466,5 +2499,14 @@ export default {
     transform: scale(1.2);
     opacity: 0.8;
   }
+}
+
+/* ========== 玩家格子背景 - 放在最后确保覆盖所有主题 ========== */
+.cell.player1 {
+  background: #4dabf7 !important;
+}
+
+.cell.player2 {
+  background: #ff6b6b !important;
 }
 </style>
