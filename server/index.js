@@ -2,7 +2,7 @@ import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import cors from 'cors'
-import { GAME_CONFIG } from '../shared/constants.js'
+import { GAME_CONFIG } from './shared/constants.js'
 import { RoomManager } from './game/room.js'
 import { MatchManager } from './game/match.js'
 
