@@ -101,55 +101,107 @@
     <div v-if="showRules" class="rules-modal">
       <div class="rules-content">
         <h2>📜 游戏规则</h2>
-        <div class="rules-section">
-          <h3>🎯 游戏目标</h3>
-          <p>击败对方玩家，使其血量降为0。</p>
-        </div>
-        <div class="rules-section">
-          <h3>🃏 卡牌类型</h3>
-          <ul>
-            <li><strong>移动牌 ↑→↓←</strong>：控制角色向指定方向移动一格</li>
-            <li><strong>攻击牌 ⚔</strong>：对指定方向造成伤害（1格或2格距离）</li>
-            <li><strong>防御牌 🛡</strong>：抵消下一次受到的攻击</li>
-            <li><strong>探查牌 👁</strong>：
-              <ul class="sub-list">
-                <li>行探查 👁↔：照亮你所在行的所有格子</li>
-                <li>列探查 👁↕：照亮你所在列的所有格子</li>
-                <li>环绕探查 👁：扩大你的视野范围至1.5格</li>
+        <div class="rules-columns">
+          <!-- 左侧列 -->
+          <div class="rules-column">
+            <div class="rules-section">
+              <h3>🎯 游戏目标</h3>
+              <p>击败对方玩家，使其血量降为0。</p>
+            </div>
+            <div class="rules-section">
+              <h3>🃏 卡牌类型</h3>
+              <ul>
+                <li><strong>移动牌 ↑→↓←</strong>：控制角色向指定方向移动一格</li>
+                <li><strong>攻击牌 ⚔</strong>：对指定方向造成伤害（1格或2格距离）</li>
+                <li><strong>防御牌 🛡</strong>：抵消下一次受到的攻击</li>
+                <li><strong>探查牌 👁</strong>：
+                  <ul class="sub-list">
+                    <li>行探查 👁↔：照亮你所在行的所有格子</li>
+                    <li>列探查 👁↕：照亮你所在列的所有格子</li>
+                    <li>环绕探查 👁：扩大你的视野范围至1.5格</li>
+                  </ul>
+                </li>
               </ul>
-            </li>
-          </ul>
+            </div>
+            <div class="rules-section">
+              <h3>🗺 地图元素</h3>
+              <ul>
+                <li><strong>障碍物</strong>：无法通过的格子，移动和攻击都会被阻挡</li>
+                <li><strong>传送门 🔴🟡🔵</strong>：成对出现，踏入入口会传送至对应出口</li>
+                <li><strong>迷雾</strong>：视野限制，只能看到周围一定范围内的区域</li>
+              </ul>
+            </div>
+          </div>
+          <!-- 右侧列 -->
+          <div class="rules-column">
+            <div class="rules-section">
+              <h3>🌍 地图主题与特色地形</h3>
+              <p class="theme-list">🌲 森林 · 🏜️ 沙漠 · ❄️ 冰原 · 🌋 火山 · 🏛️ 古城</p>
+              <p class="theme-note">每个主题可选择特色地形，带来不同的战术体验：</p>
+              <ul class="terrain-list">
+                <li><strong>火山形🌋</strong>：岩浆河流造就不规则障碍</li>
+                <li><strong>树木形🌲</strong>：森林中的树木形成天然屏障</li>
+                <li><strong>菱形❄️</strong>：冰原的菱形晶体结构</li>
+                <li><strong>沙丘形🏜️</strong>：沙漠起伏的沙丘地形</li>
+                <li><strong>废墟形🏛️</strong>：古城遗迹的断壁残垣</li>
+              </ul>
+            </div>
+            <div class="rules-section">
+              <h3>📋 游戏流程</h3>
+              <ol>
+                <li>选择角色和3张卡牌作为手牌</li>
+                <li>先手玩家调整出牌顺序后，后手玩家可选择查看先手的第一张或最后一张手牌</li>
+                <li>后手玩家调整出牌顺序</li>
+                <li>双方交替出牌，先手玩家先出</li>
+                <li>3张牌打完后进入下一回合</li>
+              </ol>
+            </div>
+            <div class="rules-section">
+              <h3>🔍 信息可见规则</h3>
+              <ul>
+                <li>后手玩家可选择查看先手玩家的<strong>第一张</strong>或<strong>最后一张</strong>手牌</li>
+                <li>先手玩家会得知后手玩家选择查看了哪张牌</li>
+                <li>双方都只能看到对方的一张手牌</li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <div class="rules-section">
-          <h3>🗺 地图元素</h3>
-          <ul>
-            <li><strong>障碍物</strong>：无法通过的格子，移动和攻击都会被阻挡</li>
-            <li><strong>传送门 🔴🟡🔵</strong>：成对出现，踏入入口会传送至对应出口</li>
-            <li><strong>迷雾</strong>：视野限制，只能看到周围一定范围内的区域</li>
-          </ul>
-        </div>
-        <div class="rules-section">
-          <h3>🌍 地图主题</h3>
-          <p class="theme-list">🌲 森林 · 🏜️ 沙漠 · ❄️ 冰原 · 🌋 火山 · 🏛️ 古城</p>
-          <p class="theme-note">每局随机选择一种主题，不同主题有独特的视觉效果</p>
-        </div>
-        <div class="rules-section">
-          <h3>📋 游戏流程</h3>
-          <ol>
-            <li>选择3张卡牌作为手牌</li>
-            <li>先手玩家调整出牌顺序后，后手玩家可选择查看先手的第一张或最后一张手牌</li>
-            <li>后手玩家调整出牌顺序</li>
-            <li>双方交替出牌，先手玩家先出</li>
-            <li>3张牌打完后进入下一回合</li>
-          </ol>
-        </div>
-        <div class="rules-section">
-          <h3>🔍 信息可见规则</h3>
-          <ul>
-            <li>后手玩家可选择查看先手玩家的<strong>第一张</strong>或<strong>最后一张</strong>手牌</li>
-            <li>先手玩家会得知后手玩家选择查看了哪张牌</li>
-            <li>双方都只能看到对方的一张手牌</li>
-          </ul>
+        <!-- 角色技能 - 全宽展示 -->
+        <div class="rules-section rules-skills-section">
+          <h3>⚔️ 角色技能</h3>
+          <p class="skill-intro">每个角色拥有独特的技能，男性角色为<strong class="active-skill-text">主动技能</strong>（需手动触发），女性角色为<strong class="passive-skill-text">被动技能</strong>（自动生效）：</p>
+          <div class="skills-table">
+            <div class="skill-row skill-header">
+              <div class="skill-cell">职业</div>
+              <div class="skill-cell">男性角色（主动）</div>
+              <div class="skill-cell">女性角色（被动）</div>
+            </div>
+            <div class="skill-row">
+              <div class="skill-cell profession">🧙 法师</div>
+              <div class="skill-cell active-skill">☄️ 天降陨石<br><span class="skill-desc">随机在多个格子落下陨石造成伤害</span></div>
+              <div class="skill-cell passive-skill">💥 爆裂攻击<br><span class="skill-desc">攻击可摧毁障碍物和传送门</span></div>
+            </div>
+            <div class="skill-row">
+              <div class="skill-cell profession">⚔️ 骑士</div>
+              <div class="skill-cell active-skill">🌀 旋风斩<br><span class="skill-desc">对周围一圈造成范围伤害</span></div>
+              <div class="skill-cell passive-skill">🗡️ 坚韧突刺<br><span class="skill-desc">攻击范围+1，初始血量+1</span></div>
+            </div>
+            <div class="skill-row">
+              <div class="skill-cell profession">📖 阅读者</div>
+              <div class="skill-cell active-skill">📖 回忆过去<br><span class="skill-desc">重新获得之前的探查视野</span></div>
+              <div class="skill-cell passive-skill">🔍 深度求索<br><span class="skill-desc">环绕探查的范围额外+1</span></div>
+            </div>
+            <div class="skill-row">
+              <div class="skill-cell profession">🗡️ 盗贼</div>
+              <div class="skill-cell active-skill">🃏 盗为己用<br><span class="skill-desc">复制对手第一张手牌加入自己手牌</span></div>
+              <div class="skill-cell passive-skill">👁️ 隔墙有眼<br><span class="skill-desc">每隔几回合可偷看对手手牌</span></div>
+            </div>
+            <div class="skill-row">
+              <div class="skill-cell profession">🏹 弓箭手</div>
+              <div class="skill-cell active-skill">🏹 百步穿杨<br><span class="skill-desc">向四个方向发射穿透箭矢</span></div>
+              <div class="skill-cell passive-skill">🎯 天降箭雨<br><span class="skill-desc">每回合开始随机落下箭雨攻击</span></div>
+            </div>
+          </div>
         </div>
         <div class="rules-checkbox">
           <label>
@@ -4193,7 +4245,7 @@ html, body {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.75);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4202,32 +4254,50 @@ html, body {
 
 .rules-content {
   background: white;
-  padding: 2rem;
-  border-radius: 16px;
-  max-width: 500px;
-  max-height: 80vh;
+  padding: 2rem 2.5rem;
+  border-radius: 20px;
+  width: 90%;
+  max-width: 1000px;
+  max-height: 85vh;
   overflow-y: auto;
   color: #333;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
 .rules-content .btn {
   display: block;
   margin: 1rem auto 0;
+  padding: 0.8rem 2.5rem;
+  font-size: 1.1rem;
 }
 
 .rules-content h2 {
   text-align: center;
   margin-bottom: 1.5rem;
   color: #667eea;
+  font-size: 1.8rem;
+}
+
+/* 规则内容分栏布局 */
+.rules-columns {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.rules-column {
+  flex: 1;
+  min-width: 0;
 }
 
 .rules-section {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.2rem;
 }
 
 .rules-section h3 {
   color: #48bb78;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.6rem;
+  font-size: 1.1rem;
 }
 
 .rules-section ul, .rules-section ol {
@@ -4236,6 +4306,7 @@ html, body {
 
 .rules-section li {
   margin-bottom: 0.5rem;
+  line-height: 1.5;
 }
 
 /* 探查牌子列表样式 */
@@ -4263,6 +4334,103 @@ html, body {
   color: #888;
   text-align: center;
   font-style: italic;
+  margin-bottom: 0.5rem;
+}
+
+/* 特色地形列表样式 */
+.rules-section .terrain-list {
+  font-size: 0.9rem;
+  padding-left: 1rem;
+}
+
+.rules-section .terrain-list li {
+  margin-bottom: 0.4rem;
+}
+
+/* 角色技能区域样式 */
+.rules-skills-section {
+  background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+  border-radius: 12px;
+  padding: 1.2rem;
+  margin-top: 1rem;
+}
+
+.rules-skills-section h3 {
+  text-align: center;
+  font-size: 1.2rem;
+  margin-bottom: 0.8rem;
+}
+
+.skill-intro {
+  text-align: center;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+  color: #555;
+}
+
+.active-skill-text {
+  color: #f39c12;
+}
+
+.passive-skill-text {
+  color: #667eea;
+}
+
+/* 技能表格样式 */
+.skills-table {
+  border: 2px solid #dee2e6;
+  border-radius: 10px;
+  overflow: hidden;
+  background: white;
+}
+
+.skill-row {
+  display: flex;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.skill-row:last-child {
+  border-bottom: none;
+}
+
+.skill-row.skill-header {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  font-weight: bold;
+}
+
+.skill-cell {
+  flex: 1;
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-right: 1px solid #dee2e6;
+}
+
+.skill-cell:last-child {
+  border-right: none;
+}
+
+.skill-cell.profession {
+  font-weight: bold;
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.05);
+}
+
+.skill-cell.active-skill {
+  background: linear-gradient(145deg, #fff9e6, #fff3cc);
+}
+
+.skill-cell.passive-skill {
+  background: linear-gradient(145deg, #f0f4ff, #e8ecf8);
+}
+
+.skill-cell .skill-desc {
+  font-size: 0.75rem;
+  color: #888;
+  margin-top: 0.3rem;
+  line-height: 1.3;
 }
 
 .rules-checkbox {
@@ -4273,6 +4441,7 @@ html, body {
 .rules-checkbox label {
   cursor: pointer;
   color: #666;
+  font-size: 0.95rem;
 }
 
 .rules-btn {
@@ -5485,9 +5654,9 @@ html, body {
 
 /* 技能卡牌基础样式 */
 .skill-card {
-  width: 100px;
-  height: 140px;
-  padding: 0.5rem;
+  width: 115px;
+  height: 165px;
+  padding: 0.6rem;
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -5515,7 +5684,7 @@ html, body {
 
 /* 技能图标 */
 .skill-card .skill-icon {
-  font-size: 2rem;
+  font-size: 2.2rem;
   margin-bottom: 0.3rem;
 }
 
@@ -5552,16 +5721,30 @@ html, body {
   margin-bottom: 0.2rem;
 }
 
-/* 技能描述 */
+/* 技能描述 - 可滚动 */
 .skill-card .skill-description {
   font-size: 0.6rem;
   color: #888;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  line-height: 1.3;
+  max-height: 65px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  padding-right: 2px;
+}
+
+/* 自定义滚动条样式(WebKit) */
+.skill-card .skill-description::-webkit-scrollbar {
+  width: 3px;
+}
+
+.skill-card .skill-description::-webkit-scrollbar-thumb {
+  background: rgba(102, 126, 234, 0.4);
+  border-radius: 3px;
+}
+
+.skill-card .skill-description::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* 可选中状态 - 脉冲动画 */
