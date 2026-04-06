@@ -25,7 +25,7 @@
 </template>
 
 <script>
-import { getAvatarById, getDefaultAvatar } from '../utils/avatarManager'
+import { getAvatarById, getDefaultAvatar } from '../utils/avatarManager.js'
 
 export default {
   name: 'AvatarIcon',
@@ -114,8 +114,8 @@ export default {
 }
 
 .avatar-icon.crop-circle.size-large {
-  width: 70px;
-  height: 70px;
+  width: 85px;
+  height: 85px;
 }
 
 .avatar-icon.crop-circle.size-xlarge {

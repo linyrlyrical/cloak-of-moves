@@ -32,12 +32,15 @@
         <div 
           v-for="avatar in currentAvatars" 
           :key="avatar.id"
+          :ref="el => setAvatarCardRef(avatar.id, el)"
           class="avatar-card"
           :class="{ selected: selectedAvatarId === avatar.id }"
           @click="selectAvatar(avatar)"
+          @mouseenter="handleMouseEnter(avatar)"
+          @mouseleave="handleMouseLeave"
         >
           <div class="card-avatar">
-            <AvatarIcon :avatar="avatar" size="xlarge" crop-mode="full" :selected="selectedAvatarId === avatar.id" />
+            <AvatarIcon :avatar="avatar" size="xlarge" cropMode="full" :selected="selectedAvatarId === avatar.id" />
           </div>
           <div class="card-info">
             <div class="card-name">{{ avatar.genderCn }}{{ avatar.name }}</div>
@@ -57,12 +60,35 @@
         </button>
       </div>
     </div>
+    
+    <!-- 技能提示卡片 - 使用 Teleport 渲染到 body -->
+    <Teleport to="body">
+      <Transition name="skill-tooltip">
+        <div 
+          v-if="showSkillTooltip && hoveredAvatarId && currentSkill" 
+          class="skill-tooltip-card"
+          :class="currentSkill.skillType === 'active' ? 'active-skill' : 'passive-skill'"
+          :style="tooltipStyle"
+        >
+          <div class="skill-tooltip-icon">{{ currentSkill.skillIcon }}</div>
+          <div class="skill-tooltip-name">{{ currentSkill.skillName }}</div>
+          <div class="skill-tooltip-type-label">
+            {{ currentSkill.skillType === 'active' ? '主动' : '被动' }}
+          </div>
+          <div v-if="currentSkill.skillType === 'active'" class="skill-tooltip-cooldown">
+            冷却: {{ currentSkill.cooldown }}回合
+          </div>
+          <div class="skill-tooltip-description">{{ currentSkill.description }}</div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
-import { characterAvatars, getSelectedAvatar, saveSelectedAvatar } from '../utils/avatarManager'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
+import { characterAvatars, getSelectedAvatar, saveSelectedAvatar } from '../utils/avatarManager.js'
+import { CHARACTER_SKILLS } from '@shared/constants.js'
 import AvatarIcon from './AvatarIcon.vue'
 
 export default {
@@ -75,10 +101,106 @@ export default {
     const activeGender = ref('male')
     const selectedAvatarId = ref(null)
     
+    // 悬停技能提示相关
+    const hoveredAvatarId = ref(null)
+    const showSkillTooltip = ref(false)
+    let hoverTimeout = null
+    
+    // 存储角色卡片DOM引用
+    const avatarCardRefs = reactive({})
+    
+    // 技能卡片位置样式
+    const tooltipStyle = ref({})
+    
     // 当前显示的角色列表
     const currentAvatars = computed(() => {
       return characterAvatars[activeGender.value] || []
     })
+    
+    // 设置角色卡片DOM引用
+    const setAvatarCardRef = (avatarId, el) => {
+      if (el) {
+        avatarCardRefs[avatarId] = el
+      }
+    }
+    
+    // 根据avatar获取技能信息
+    // avatar.id格式与技能ID格式一致，都是 '职业_性别' 如 'mage_male'
+    const getSkillByAvatar = (avatar) => {
+      if (!avatar) return null
+      return CHARACTER_SKILLS[avatar.id] || null
+    }
+    
+    // 获取当前悬停的角色对象
+    const getHoveredAvatar = () => {
+      if (!hoveredAvatarId.value) return null
+      return currentAvatars.value.find(a => a.id === hoveredAvatarId.value)
+    }
+    
+    // 当前悬停角色的技能
+    const currentSkill = computed(() => {
+      const avatar = getHoveredAvatar()
+      return avatar ? getSkillByAvatar(avatar) : null
+    })
+    
+    // 计算技能卡片位置
+    const calculateTooltipPosition = () => {
+      if (!hoveredAvatarId.value) return
+      
+      const cardEl = avatarCardRefs[hoveredAvatarId.value]
+      if (!cardEl) return
+      
+      const rect = cardEl.getBoundingClientRect()
+      const tooltipWidth = 140 // 技能卡片宽度
+      const tooltipGap = 12 // 间距
+      const viewportWidth = window.innerWidth
+      
+      // 判断是否靠近右边缘
+      const isNearRightEdge = rect.right + tooltipWidth + tooltipGap > viewportWidth - 20
+      
+      if (isNearRightEdge) {
+        // 显示在左侧
+        tooltipStyle.value = {
+          position: 'fixed',
+          left: `${rect.left - tooltipWidth - tooltipGap}px`,
+          top: `${rect.top + rect.height / 2}px`,
+          transform: 'translateY(-50%)'
+        }
+      } else {
+        // 显示在右侧
+        tooltipStyle.value = {
+          position: 'fixed',
+          left: `${rect.right + tooltipGap}px`,
+          top: `${rect.top + rect.height / 2}px`,
+          transform: 'translateY(-50%)'
+        }
+      }
+    }
+    
+    // 鼠标进入角色卡片
+    const handleMouseEnter = (avatar) => {
+      // 清除之前的定时器
+      if (hoverTimeout) {
+        clearTimeout(hoverTimeout)
+      }
+      hoveredAvatarId.value = avatar.id
+      // 计算位置
+      calculateTooltipPosition()
+      // 0.5秒后显示技能提示
+      hoverTimeout = setTimeout(() => {
+        showSkillTooltip.value = true
+      }, 500)
+    }
+    
+    // 鼠标离开角色卡片
+    const handleMouseLeave = () => {
+      if (hoverTimeout) {
+        clearTimeout(hoverTimeout)
+        hoverTimeout = null
+      }
+      showSkillTooltip.value = false
+      hoveredAvatarId.value = null
+    }
     
     // 初始化时获取当前选中的形象
     onMounted(() => {
@@ -87,6 +209,13 @@ export default {
       // 设置当前性别标签
       if (current.gender === 'female') {
         activeGender.value = 'female'
+      }
+    })
+    
+    // 组件卸载时清理定时器
+    onUnmounted(() => {
+      if (hoverTimeout) {
+        clearTimeout(hoverTimeout)
       }
     })
     
@@ -109,7 +238,15 @@ export default {
       selectedAvatarId,
       currentAvatars,
       selectAvatar,
-      confirmSelection
+      confirmSelection,
+      hoveredAvatarId,
+      showSkillTooltip,
+      getSkillByAvatar,
+      handleMouseEnter,
+      handleMouseLeave,
+      setAvatarCardRef,
+      tooltipStyle,
+      currentSkill
     }
   }
 }
@@ -261,6 +398,7 @@ export default {
 }
 
 .avatar-card:hover {
+  z-index: 10;
   transform: translateY(-3px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
   border-color: #667eea;
@@ -348,5 +486,111 @@ export default {
 .btn-confirm:disabled {
   background: #adb5bd;
   cursor: not-allowed;
+}
+</style>
+
+<style>
+/* ========== 技能提示卡片样式（全局，因为使用了 Teleport） ========== */
+.skill-tooltip-card {
+  width: 140px;
+  min-height: 100px;
+  padding: 0.6rem;
+  border-radius: 12px;
+  cursor: default;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  overflow: hidden;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+}
+
+/* 主动技能 - 金色渐变 */
+.skill-tooltip-card.active-skill {
+  background: linear-gradient(145deg, #fff9e6, #fff3cc);
+  border: 2px solid #ffd700;
+  box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
+}
+
+/* 被动技能 - 银色渐变 */
+.skill-tooltip-card.passive-skill {
+  background: linear-gradient(145deg, #f0f0f0, #e8e8e8);
+  border: 2px solid #c0c0c0;
+  box-shadow: 0 4px 15px rgba(192, 192, 192, 0.3);
+}
+
+.skill-tooltip-icon {
+  font-size: 1.8rem;
+  margin-bottom: 0.3rem;
+}
+
+.skill-tooltip-name {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 0.2rem;
+}
+
+.skill-tooltip-type-label {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 8px;
+  margin-bottom: 0.2rem;
+}
+
+.active-skill .skill-tooltip-type-label {
+  background: linear-gradient(135deg, #ffd700, #ffcc00);
+  color: #8b4513;
+}
+
+.passive-skill .skill-tooltip-type-label {
+  background: linear-gradient(135deg, #c0c0c0, #a0a0a0);
+  color: #333;
+}
+
+.skill-tooltip-cooldown {
+  font-size: 0.7rem;
+  color: #666;
+  margin-bottom: 0.2rem;
+}
+
+.skill-tooltip-description {
+  font-size: 0.6rem;
+  color: #888;
+  line-height: 1.3;
+  max-width: 100%;
+  word-wrap: break-word;
+}
+
+/* 技能提示卡片过渡动画 */
+.skill-tooltip-enter-active {
+  animation: tooltipFadeIn 0.3s ease-out;
+}
+
+.skill-tooltip-leave-active {
+  animation: tooltipFadeOut 0.2s ease-in;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
+@keyframes tooltipFadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-50%) translateX(-10px);
+  }
 }
 </style>

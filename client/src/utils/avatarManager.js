@@ -7,7 +7,7 @@
 export const characterAvatars = {
   male: [
     {
-      id: 'male_mage',
+      id: 'mage_male',
       name: '法师',
       nameEn: 'Mage',
       gender: 'male',
@@ -21,7 +21,7 @@ export const characterAvatars = {
       image: '/avatars/male_mage.png'
     },
     {
-      id: 'male_knight',
+      id: 'knight_male',
       name: '骑士',
       nameEn: 'Knight',
       gender: 'male',
@@ -35,7 +35,7 @@ export const characterAvatars = {
       image: '/avatars/male_knight.png'
     },
     {
-      id: 'male_reader',
+      id: 'reader_male',
       name: '阅读者',
       nameEn: 'Reader',
       gender: 'male',
@@ -49,7 +49,7 @@ export const characterAvatars = {
       image: '/avatars/male_reader.png'
     },
     {
-      id: 'male_thief',
+      id: 'thief_male',
       name: '盗贼',
       nameEn: 'Thief',
       gender: 'male',
@@ -63,7 +63,7 @@ export const characterAvatars = {
       image: '/avatars/male_thief.png'
     },
     {
-      id: 'male_archer',
+      id: 'archer_male',
       name: '弓箭手',
       nameEn: 'Archer',
       gender: 'male',
@@ -79,7 +79,7 @@ export const characterAvatars = {
   ],
   female: [
     {
-      id: 'female_mage',
+      id: 'mage_female',
       name: '法师',
       nameEn: 'Mage',
       gender: 'female',
@@ -93,7 +93,7 @@ export const characterAvatars = {
       image: '/avatars/female_mage.png'
     },
     {
-      id: 'female_knight',
+      id: 'knight_female',
       name: '骑士',
       nameEn: 'Knight',
       gender: 'female',
@@ -107,7 +107,7 @@ export const characterAvatars = {
       image: '/avatars/female_knight.png'
     },
     {
-      id: 'female_reader',
+      id: 'reader_female',
       name: '阅读者',
       nameEn: 'Reader',
       gender: 'female',
@@ -121,7 +121,7 @@ export const characterAvatars = {
       image: '/avatars/female_reader.png'
     },
     {
-      id: 'female_thief',
+      id: 'thief_female',
       name: '盗贼',
       nameEn: 'Thief',
       gender: 'female',
@@ -135,7 +135,7 @@ export const characterAvatars = {
       image: '/avatars/female_thief.png'
     },
     {
-      id: 'female_archer',
+      id: 'archer_female',
       name: '弓箭手',
       nameEn: 'Archer',
       gender: 'female',
@@ -156,10 +156,34 @@ export const getAllAvatars = () => {
   return [...characterAvatars.male, ...characterAvatars.female]
 }
 
+// 标准化角色ID（兼容两种格式：职业_性别 和 性别_职业）
+const normalizeAvatarId = (id) => {
+  if (!id) return null
+  
+  const all = getAllAvatars()
+  
+  // 直接匹配
+  const directMatch = all.find(avatar => avatar.id === id)
+  if (directMatch) return id
+  
+  // 尝试转换格式：female_reader -> reader_female
+  const parts = id.split('_')
+  if (parts.length === 2) {
+    const converted = `${parts[1]}_${parts[0]}`
+    const convertedMatch = all.find(avatar => avatar.id === converted)
+    if (convertedMatch) return converted
+  }
+  
+  return null
+}
+
 // 根据ID获取角色信息
 export const getAvatarById = (id) => {
+  const normalizedId = normalizeAvatarId(id)
+  if (!normalizedId) return null
+  
   const all = getAllAvatars()
-  return all.find(avatar => avatar.id === id) || null
+  return all.find(avatar => avatar.id === normalizedId) || null
 }
 
 // 随机获取一个角色
@@ -219,6 +243,60 @@ export const getDefaultAvatar = () => {
   }
 }
 
+// 获取所有男性角色（主动技能）
+export const getMaleAvatars = () => {
+  return characterAvatars.male
+}
+
+// 获取所有女性角色（被动技能）
+export const getFemaleAvatars = () => {
+  return characterAvatars.female
+}
+
+// 按职业分组获取角色
+export const getAvatarsByProfession = () => {
+  const professions = ['mage', 'knight', 'reader', 'thief', 'archer']
+  const grouped = {}
+  for (const profession of professions) {
+    grouped[profession] = [
+      getAvatarById(`${profession}_male`),
+      getAvatarById(`${profession}_female`)
+    ].filter(Boolean)
+  }
+  return grouped
+}
+
+// 获取职业的主题色
+export const getProfessionColor = (profession) => {
+  const maleAvatar = getAvatarById(`${profession}_male`)
+  return maleAvatar?.primaryColor || '#6b7280'
+}
+
+// 检查角色是否有主动技能
+export const hasActiveSkill = (avatarId) => {
+  const avatar = getAvatarById(avatarId)
+  return avatar?.gender === 'male'
+}
+
+// 检查角色是否有被动技能
+export const hasPassiveSkill = (avatarId) => {
+  const avatar = getAvatarById(avatarId)
+  return avatar?.gender === 'female'
+}
+
+// 获取角色的技能冷却时间
+export const getSkillCooldown = (avatarId) => {
+  // 主动技能冷却时间配置
+  const cooldowns = {
+    'mage_male': 3,
+    'knight_male': 2,
+    'reader_male': 2,
+    'thief_male': 3,
+    'archer_male': 2
+  }
+  return cooldowns[avatarId] || 0
+}
+
 export default {
   characterAvatars,
   getAllAvatars,
@@ -226,5 +304,12 @@ export default {
   getRandomAvatar,
   getSelectedAvatar,
   saveSelectedAvatar,
-  getDefaultAvatar
+  getDefaultAvatar,
+  getMaleAvatars,
+  getFemaleAvatars,
+  getAvatarsByProfession,
+  getProfessionColor,
+  hasActiveSkill,
+  hasPassiveSkill,
+  getSkillCooldown
 }

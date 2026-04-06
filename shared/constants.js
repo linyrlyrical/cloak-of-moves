@@ -73,7 +73,10 @@ export const MAP_THEMES = {
   forest: {
     id: 'forest',
     name: '森林',
+    icon: '🌲',
     nameCn: '🌲 森林',
+    // 主题名称渐变色
+    nameColor: 'linear-gradient(135deg, #15803d, #22c55e)',
     // 棋盘背景渐变（深色）
     background: 'linear-gradient(135deg, #1a3d2e 0%, #2d5a3f 40%, #1e4d2f 100%)',
     // 全屏柔和背景色（浅色）
@@ -88,6 +91,18 @@ export const MAP_THEMES = {
       particles: 'leaves',
       ambient: 'light-spots'
     },
+    // 粒子样式配置
+    particleStyle: {
+      shape: 'leaf',
+      colors: ['#15803d', '#166534', '#14532d', '#0d4f2c', '#1a5e3a'], // 深绿色系，在浅绿背景上对比度高
+      sizeMin: 20,
+      sizeMax: 60,
+      count: 70,
+      speedMin: 15,
+      speedMax: 25,
+      opacityMin: 0.5,
+      opacityMax: 0.8
+    },
     // 玩家颜色
     playerColors: {
       player1: '#4ade80',
@@ -97,7 +112,10 @@ export const MAP_THEMES = {
   desert: {
     id: 'desert',
     name: '沙漠',
+    icon: '🏜️',
     nameCn: '🏜️ 沙漠',
+    // 主题名称渐变色
+    nameColor: 'linear-gradient(135deg, #b45309, #d97706)',
     background: 'linear-gradient(135deg, #8b6914 0%, #c2956e 40%, #d4a574 100%)',
     // 全屏柔和背景色（浅黄色）
     screenBg: 'linear-gradient(135deg, #fff8e1 0%, #ffecb3 50%, #ffe082 100%)',
@@ -108,6 +126,18 @@ export const MAP_THEMES = {
       particles: 'sand',
       ambient: 'heat-wave'
     },
+    // 粒子样式配置
+    particleStyle: {
+      shape: 'sand',
+      colors: ['#92400e', '#78350f', '#a16207', '#854d0e', '#713f12'], // 深褐色系，在浅黄背景上对比度高
+      sizeMin: 8,
+      sizeMax: 35,
+      count: 110,
+      speedMin: 18,
+      speedMax: 30,
+      opacityMin: 0.4,
+      opacityMax: 0.6
+    },
     playerColors: {
       player1: '#fbbf24',
       player2: '#60a5fa'
@@ -116,7 +146,10 @@ export const MAP_THEMES = {
   ice: {
     id: 'ice',
     name: '冰原',
+    icon: '❄️',
     nameCn: '❄️ 冰原',
+    // 主题名称渐变色
+    nameColor: 'linear-gradient(135deg, #0369a1, #0ea5e9)',
     background: 'linear-gradient(135deg, #1e3a5f 0%, #2d5a7b 40%, #4a7c9b 100%)',
     // 全屏柔和背景色（浅蓝色）
     screenBg: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 50%, #90caf9 100%)',
@@ -127,6 +160,18 @@ export const MAP_THEMES = {
       particles: 'snow',
       ambient: 'ice-mist'
     },
+    // 粒子样式配置
+    particleStyle: {
+      shape: 'snow',
+      colors: ['#0ea5e9', '#0284c7', '#0369a1', '#075985', '#0c4a6e'], // 深蓝色系，在浅蓝背景上对比度高
+      sizeMin: 18,
+      sizeMax: 55,
+      count: 100,
+      speedMin: 12,
+      speedMax: 22,
+      opacityMin: 0.6,
+      opacityMax: 0.9
+    },
     playerColors: {
       player1: '#67e8f9',
       player2: '#fb7185'
@@ -135,7 +180,10 @@ export const MAP_THEMES = {
   volcano: {
     id: 'volcano',
     name: '火山',
+    icon: '🌋',
     nameCn: '🌋 火山',
+    // 主题名称渐变色
+    nameColor: 'linear-gradient(135deg, #991b1b, #dc2626)',
     background: 'linear-gradient(135deg, #1a0a0a 0%, #3d1515 40%, #5c2020 100%)',
     // 全屏柔和背景色（浅红/粉色）
     screenBg: 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 50%, #ef9a9a 100%)',
@@ -146,6 +194,18 @@ export const MAP_THEMES = {
       particles: 'embers',
       ambient: 'smoke'
     },
+    // 粒子样式配置
+    particleStyle: {
+      shape: 'ember',
+      colors: ['#991b1b', '#7f1d1d', '#b91c1c', '#c2410c', '#9a3412'], // 深红/暗橙色系，在浅红背景上对比度高
+      sizeMin: 10,
+      sizeMax: 40,
+      count: 90,
+      speedMin: 15,
+      speedMax: 28,
+      opacityMin: 0.6,
+      opacityMax: 0.9
+    },
     playerColors: {
       player1: '#f97316',
       player2: '#a78bfa'
@@ -154,7 +214,10 @@ export const MAP_THEMES = {
   ruins: {
     id: 'ruins',
     name: '古城',
+    icon: '🏛️',
     nameCn: '🏛️ 古城',
+    // 主题名称渐变色
+    nameColor: 'linear-gradient(135deg, #78716c, #a8a29e)',
     background: 'linear-gradient(135deg, #2d2d2d 0%, #4a4a4a 40%, #3d3d3d 100%)',
     // 全屏柔和背景色（浅灰色）
     screenBg: 'linear-gradient(135deg, #fafafa 0%, #f5f5f5 50%, #e0e0e0 100%)',
@@ -164,6 +227,18 @@ export const MAP_THEMES = {
     decorations: {
       particles: 'dust',
       ambient: 'vines'
+    },
+    // 粒子样式配置
+    particleStyle: {
+      shape: 'dust',
+      colors: ['#78350f', '#713f12', '#92400e', '#5c3d2e', '#4a3728'], // 深褐色系，在浅灰背景上对比度高
+      sizeMin: 8,
+      sizeMax: 30,
+      count: 130,
+      speedMin: 20,
+      speedMax: 35,
+      opacityMin: 0.4,
+      opacityMax: 0.7
     },
     playerColors: {
       player1: '#fcd34d',
@@ -184,3 +259,297 @@ export const PORTAL_COLORS = {
 
 // 传送门颜色列表（用于随机选择）
 export const PORTAL_COLOR_LIST = Object.keys(PORTAL_COLORS);
+
+// ==================== 特色地形布局 ====================
+// 每个主题的特色地形布局，1=可用格子，0=不可用格子
+// 玩家起始位置固定
+
+export const THEME_SHAPE_LAYOUTS = {
+  volcano: {
+    name: '火山形',
+    icon: '🌋',
+    layout: [
+      [0,0,0,0,0,1,0,0,0,0,0],
+      [0,0,0,0,1,1,1,0,0,0,0],
+      [0,0,0,0,1,1,1,0,0,0,0],
+      [0,0,0,1,1,1,1,1,0,0,0],
+      [0,0,0,1,1,1,1,1,0,0,0],
+      [0,0,1,1,1,1,1,1,1,0,0],
+      [0,0,1,1,1,1,1,1,1,0,0],
+      [0,1,1,1,1,1,1,1,1,1,0],
+      [0,1,1,1,1,1,1,1,1,1,0],
+      [1,1,1,1,1,1,1,1,1,1,1],
+    ],
+    player1Start: { x: 5, y: 0 },
+    player2Start: { x: 5, y: 9 },
+  },
+  
+  forest: {
+    name: '树木形',
+    icon: '🌲',
+    layout: [
+      [0,0,0,0,0,1,0,0,0,0,0],
+      [0,0,0,0,1,1,1,0,0,0,0],
+      [0,0,0,1,1,1,1,1,0,0,0],
+      [0,0,0,0,1,1,1,0,0,0,0],
+      [0,0,0,1,1,1,1,1,0,0,0],
+      [0,0,1,1,1,1,1,1,1,0,0],
+      [0,0,0,0,1,1,1,0,0,0,0],
+      [0,0,0,1,1,1,1,1,0,0,0],
+      [0,0,1,1,1,1,1,1,1,0,0],
+      [0,0,0,0,0,1,0,0,0,0,0],
+      [0,0,0,0,1,1,1,0,0,0,0],
+    ],
+    player1Start: { x: 5, y: 0 },
+    player2Start: { x: 5, y: 10 },
+  },
+  
+  desert: {
+    name: '沙丘形',
+    icon: '🏜️',
+    layout: [
+      [0,0,0,0,0,1,1,1,1,1,1],
+      [0,0,0,1,1,1,1,1,1,1,0],
+      [0,0,1,1,1,1,1,1,0,0,0],
+      [0,1,1,1,1,1,0,0,0,0,0],
+      [1,1,1,1,0,0,0,0,0,0,0],
+      [1,1,1,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0],
+    ],
+    player1Start: { x: 10, y: 0 },
+    player2Start: { x: 0, y: 5 },
+  },
+  
+  ice: {
+    name: '菱形',
+    icon: '❄️',
+    layout: [
+      [0,0,0,0,0,1,0,0,0,0,0],
+      [0,0,0,0,1,1,1,0,0,0,0],
+      [0,0,0,1,1,1,1,1,0,0,0],
+      [0,0,1,1,1,1,1,1,1,0,0],
+      [0,1,1,1,1,1,1,1,1,1,0],
+      [1,1,1,1,1,1,1,1,1,1,1],
+      [0,1,1,1,1,1,1,1,1,1,0],
+      [0,0,1,1,1,1,1,1,1,0,0],
+      [0,0,0,1,1,1,1,1,0,0,0],
+      [0,0,0,0,1,1,1,0,0,0,0],
+      [0,0,0,0,0,1,0,0,0,0,0],
+    ],
+    player1Start: { x: 5, y: 0 },
+    player2Start: { x: 5, y: 10 },
+  },
+  
+  ruins: {
+    name: '城堡形',
+    icon: '🏛️',
+    layout: [
+      [0,0,1,1,1,0,1,1,1,0,0],
+      [0,0,1,1,1,0,1,1,1,0,0],
+      [0,0,1,1,1,1,1,1,1,0,0],
+      [0,0,1,1,1,1,1,1,1,0,0],
+      [1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,0,0,0,0,0,1,1,1],
+      [1,1,1,0,0,0,0,0,1,1,1],
+      [1,1,1,0,0,0,0,0,1,1,1],
+    ],
+    player1Start: { x: 2, y: 5 },
+    player2Start: { x: 8, y: 5 },
+  },
+};
+
+// 获取特色地形的尺寸
+export function getThemeShapeDimensions(layout) {
+  if (!layout || !layout.length) return { width: 0, height: 0 };
+  return {
+    width: layout[0].length,
+    height: layout.length
+  };
+}
+
+// 计算特色地形中的可用格子数量
+export function countThemeShapeCells(layout) {
+  if (!layout) return 0;
+  let count = 0;
+  for (let row = 0; row < layout.length; row++) {
+    for (let col = 0; col < layout[row].length; col++) {
+      if (layout[row][col] === 1) count++;
+    }
+  }
+  return count;
+}
+
+// ==================== 角色技能配置 ====================
+
+// 角色技能定义（5个职业 × 2个性别 = 10个角色）
+export const CHARACTER_SKILLS = {
+  // ========== 法师 ==========
+  mage_male: {
+    id: 'mage_male',
+    name: '男法师',
+    profession: '法师',
+    gender: 'male',
+    skillName: '天降陨石',
+    skillIcon: '☄️',
+    skillType: 'active',        // 主动技能
+    cooldown: 3,                // 冷却回合数
+    description: '对地图内随机m个格子造成攻击伤害，摧毁命中的障碍物或传送门（m=向上取整(地图面积开根号÷2)）',
+    passiveEffect: null
+  },
+  mage_female: {
+    id: 'mage_female',
+    name: '女法师',
+    profession: '法师',
+    gender: 'female',
+    skillName: '爆裂攻击',
+    skillIcon: '💥',
+    skillType: 'passive',       // 被动技能
+    cooldown: 0,
+    description: '使用攻击牌时，若命中障碍物或传送门，直接摧毁目标',
+    passiveEffect: 'explosive_attack'  // 被动效果标识
+  },
+  
+  // ========== 骑士 ==========
+  knight_male: {
+    id: 'knight_male',
+    name: '男骑士',
+    profession: '骑士',
+    gender: 'male',
+    skillName: '旋风斩',
+    skillIcon: '🌀',
+    skillType: 'active',
+    cooldown: 3,
+    description: '对自身周围8个格子（环形环绕）造成范围伤害',
+    passiveEffect: null
+  },
+  knight_female: {
+    id: 'knight_female',
+    name: '女骑士',
+    profession: '骑士',
+    gender: 'female',
+    skillName: '坚韧突刺',
+    skillIcon: '🗡️',
+    skillType: 'passive',
+    cooldown: 0,
+    description: '攻击范围+1，初始血量+1',
+    passiveEffect: 'tough_thrust',  // 攻击范围+1
+    bonusHp: 1                      // 初始血量加成
+  },
+  
+  // ========== 阅读者 ==========
+  reader_male: {
+    id: 'reader_male',
+    name: '男阅读者',
+    profession: '阅读者',
+    gender: 'male',
+    skillName: '回忆过去',
+    skillIcon: '📖',
+    skillType: 'active',
+    cooldown: 5,
+    description: '探查该角色历史视野覆盖过的所有格子',
+    passiveEffect: null,
+    isScoutSkill: true         // 标记为探查类技能
+  },
+  reader_female: {
+    id: 'reader_female',
+    name: '女阅读者',
+    profession: '阅读者',
+    gender: 'female',
+    skillName: '深度求索',
+    skillIcon: '🔍',
+    skillType: 'passive',
+    cooldown: 0,
+    description: '常驻光圈探查效果，打出环绕探查牌时范围+1',
+    passiveEffect: 'deep_seeker',  // 环绕探查范围+1
+    hasPassiveScout: true           // 是否有常驻探查
+  },
+  
+  // ========== 盗贼 ==========
+  thief_male: {
+    id: 'thief_male',
+    name: '男盗贼',
+    profession: '盗贼',
+    gender: 'male',
+    skillName: '盗为己用',
+    skillIcon: '🃏',
+    skillType: 'active',
+    cooldown: 4,
+    description: '复制对手第一张牌的效果，同时对手的第一张牌打出时不生效',
+    passiveEffect: null,
+    copyOpponentFirstCard: true     // 复制对手第一张牌
+  },
+  thief_female: {
+    id: 'thief_female',
+    name: '女盗贼',
+    profession: '盗贼',
+    gender: 'female',
+    skillName: '隔墙有眼',
+    skillIcon: '👁️',
+    skillType: 'passive',
+    cooldown: 0,
+    description: '每2个后手回合自动查看对手的第一张和最后一张手牌',
+    passiveEffect: 'wall_has_eyes',  // 隔墙有眼
+    viewInterval: 2                    // 每2次后手回合触发
+  },
+  
+  // ========== 弓箭手 ==========
+  archer_male: {
+    id: 'archer_male',
+    name: '男弓箭手',
+    profession: '弓箭手',
+    gender: 'male',
+    skillName: '百步穿杨',
+    skillIcon: '🏹',
+    skillType: 'active',
+    cooldown: 5,
+    description: '向上、下、左、右四个方向发射穿透弓箭，直至被障碍物阻挡',
+    passiveEffect: null
+  },
+  archer_female: {
+    id: 'archer_female',
+    name: '女弓箭手',
+    profession: '弓箭手',
+    gender: 'female',
+    skillName: '天降箭雨',
+    skillIcon: '🎯',
+    skillType: 'passive',
+    cooldown: 0,
+    description: '每回合开始时，随机在地图1个格子落下箭雨造成攻击伤害',
+    passiveEffect: 'arrow_rain'  // 天降箭雨
+  }
+};
+
+// 职业列表
+export const PROFESSIONS = ['mage', 'knight', 'reader', 'thief', 'archer'];
+
+// 职业名称映射
+export const PROFESSION_NAMES = {
+  mage: '法师',
+  knight: '骑士',
+  reader: '阅读者',
+  thief: '盗贼',
+  archer: '弓箭手'
+};
+
+// 根据职业和性别获取角色ID
+export function getCharacterId(profession, gender) {
+  return `${profession}_${gender}`;
+}
+
+// 根据ID获取角色技能配置
+export function getCharacterSkillById(id) {
+  return CHARACTER_SKILLS[id] || null;
+}
+
+// 获取所有男性角色（主动技能）
+export function getMaleCharacters() {
+  return Object.values(CHARACTER_SKILLS).filter(c => c.gender === 'male');
+}
+
+// 获取所有女性角色（被动技能）
+export function getFemaleCharacters() {
+  return Object.values(CHARACTER_SKILLS).filter(c => c.gender === 'female');
+}

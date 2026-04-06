@@ -212,6 +212,16 @@ class AudioManager {
     this.countdownPlaying = false
   }
   
+  // 停止倒计时音效（用户提前确认时调用）
+  stopCountdownSound() {
+    const sound = this.sounds['countdown3s']
+    if (sound) {
+      sound.pause()
+      sound.currentTime = 0
+    }
+    this.countdownPlaying = false
+  }
+  
   // 播放探查音效
   playScan() {
     this.playSound('scan')

@@ -5,6 +5,7 @@ import cors from 'cors'
 import { GAME_CONFIG } from './shared/constants.js'
 import { RoomManager } from './game/room.js'
 import { MatchManager } from './game/match.js'
+import { LobbyManager, PLAYER_STATUS } from './game/lobby.js'
 
 const app = express()
 app.use(cors())
@@ -22,6 +23,8 @@ const io = new Server(httpServer, {
 const roomManager = new RoomManager()
 // 对局管理器
 const matchManager = new MatchManager()
+// 大厅管理器（ID匹配）
+const lobbyManager = new LobbyManager()
 // 将io实例传给matchManager
 matchManager.setIO(io)
 
@@ -102,10 +105,12 @@ io.on('connection', (socket) => {
     }
   })
   
-  // 卡牌选择
-  socket.on('select_cards', (selectedCards) => {
+  // 卡牌选择（统一处理技能牌和普通牌）
+  socket.on('select_cards', (data) => {
     const match = matchManager.getMatchBySocket(socket.id)
     if (match) {
+      // 统一处理：selectedCards 包含所有选中的牌（技能牌和普通牌一起计算）
+      const selectedCards = Array.isArray(data) ? data : data.selectedCards
       match.selectCards(socket.id, selectedCards)
     }
   })
@@ -177,10 +182,151 @@ io.on('connection', (socket) => {
     roomManager.removePlayerFromRoom(socket.id, roomCode)
   })
   
+  // ==================== ID匹配 - 大厅相关事件 ====================
+  
+  // 注册玩家ID
+  socket.on('register_id', (data) => {
+    console.log(`[大厅] ${socket.id} 请求注册ID: ${data.playerId}`)
+    
+    const playerId = data?.playerId?.trim()
+    const avatarId = data?.avatarId || null
+    
+    if (!playerId) {
+      socket.emit('id_error', { message: 'ID不能为空' })
+      return
+    }
+    
+    // 检查ID长度限制
+    if (playerId.length > 20) {
+      socket.emit('id_error', { message: 'ID长度不能超过20个字符' })
+      return
+    }
+    
+    // 检查ID格式（只允许字母、数字、下划线、中文）
+    const validIdPattern = /^[\u4e00-\u9fa5a-zA-Z0-9_]+$/
+    if (!validIdPattern.test(playerId)) {
+      socket.emit('id_error', { message: 'ID只能包含中文、字母、数字和下划线' })
+      return
+    }
+    
+    const result = lobbyManager.registerPlayer(socket.id, playerId, avatarId)
+    
+    if (result.success) {
+      socket.emit('id_registered', {
+        playerId: playerId,
+        avatarId: avatarId
+      })
+      
+      // 广播更新后的在线列表给所有玩家
+      lobbyManager.broadcastOnlinePlayers(io)
+    } else {
+      socket.emit('id_taken', { message: result.message })
+    }
+  })
+  
+  // 获取在线玩家列表
+  socket.on('get_lobby_players', () => {
+    const players = lobbyManager.getOnlinePlayers()
+    socket.emit('lobby_update', { players })
+  })
+  
+  // 发送对战邀请
+  socket.on('send_invitation', (data) => {
+    console.log(`[大厅] ${socket.id} 邀请玩家: ${data.toPlayerId}`)
+    
+    const toPlayerId = data?.toPlayerId
+    if (!toPlayerId) {
+      socket.emit('invitation_error', { message: '请选择要邀请的玩家' })
+      return
+    }
+    
+    const result = lobbyManager.sendInvitation(socket.id, toPlayerId, io)
+    
+    if (result.success) {
+      socket.emit('invitation_sent', { invitationId: result.invitationId, toPlayerId })
+    } else {
+      socket.emit('invitation_error', { message: result.message })
+    }
+  })
+  
+  // 接受邀请
+  socket.on('accept_invitation', (data) => {
+    console.log(`[大厅] ${socket.id} 接受邀请: ${data.invitationId}`)
+    
+    const invitationId = data?.invitationId
+    if (!invitationId) {
+      socket.emit('invitation_error', { message: '邀请不存在' })
+      return
+    }
+    
+    const result = lobbyManager.acceptInvitation(socket.id, invitationId, io, matchManager, roomManager)
+    
+    if (result.success) {
+      // 重要：必须先让双方加入 Socket.IO 房间，再创建 match
+      // 否则 match.setPlayer() 发送的 enter_configuring 事件无法送达
+      
+      // 被邀请者（当前socket）加入房间
+      socket.join(result.roomCode)
+      console.log(`[Socket] 被邀请者 ${socket.id} 加入房间 ${result.roomCode}`)
+      
+      // 邀请者加入房间
+      const fromSocket = io.sockets.sockets.get(result.fromSocketId)
+      if (fromSocket) {
+        fromSocket.join(result.roomCode)
+        console.log(`[Socket] 邀请者 ${result.fromSocketId} 加入房间 ${result.roomCode}`)
+      }
+      
+      // 双方都已加入 Socket.IO 房间后，再创建 match 并设置玩家
+      const match = matchManager.createMatch(result.roomCode)
+      // 邀请者为玩家1（房主），被邀请者为玩家2
+      match.setPlayer(result.fromSocketId, 0, result.fromAvatarId)
+      match.setPlayer(result.toSocketId, 1, result.toAvatarId)
+      
+      // 发送匹配成功事件给双方（告知各自是玩家1还是玩家2）
+      // 被邀请者是玩家2
+      socket.emit('match_found', { roomCode: result.roomCode, isPlayer1: false })
+      // 邀请者是玩家1（房主）
+      io.to(result.fromSocketId).emit('match_found', { roomCode: result.roomCode, isPlayer1: true })
+    } else {
+      socket.emit('invitation_error', { message: result.message })
+    }
+  })
+  
+  // 拒绝邀请
+  socket.on('reject_invitation', (data) => {
+    console.log(`[大厅] ${socket.id} 拒绝邀请: ${data.invitationId}`)
+    
+    const invitationId = data?.invitationId
+    if (!invitationId) {
+      return
+    }
+    
+    lobbyManager.rejectInvitation(socket.id, invitationId, io)
+  })
+  
+  // 离开大厅
+  socket.on('leave_lobby', () => {
+    console.log(`[大厅] ${socket.id} 离开大厅`)
+    lobbyManager.handleDisconnect(socket.id, io)
+  })
+  
+  // 游戏结束 - 恢复玩家空闲状态
+  socket.on('game_over_in_lobby', (data) => {
+    console.log(`[大厅] ${socket.id} 游戏结束，恢复空闲状态`)
+    const player = lobbyManager.getPlayerBySocket(socket.id)
+    if (player) {
+      lobbyManager.setPlayerIdle(player.id)
+      lobbyManager.broadcastOnlinePlayers(io)
+    }
+  })
+  
   // 断线处理
   socket.on('disconnect', () => {
     console.log(`[断开] ${socket.id} 已断开`)
     const match = matchManager.getMatchBySocket(socket.id)
+    
+    // 清理大厅中的玩家
+    lobbyManager.handleDisconnect(socket.id, io)
     
     if (match) {
       // 先处理断开连接通知（发送opponent_disconnected事件）

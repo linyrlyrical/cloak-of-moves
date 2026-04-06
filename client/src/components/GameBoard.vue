@@ -23,12 +23,13 @@
           gridTemplateRows: `repeat(${map.height || map.size}, 40px)`
         }"
       >
-        <div 
+          <div 
           v-for="(cell, index) in cells" 
           :key="index"
           class="cell"
           :class="{
             'obstacle': cell.isObstacle,
+            'boundary': cell.isBoundary,
             'player1': cell.hasPlayer1,
             'player2': cell.hasPlayer2,
             'highlight': cell.isHighlighted,
@@ -114,8 +115,190 @@
       </div>
     </template>
     
-<!-- 全局迷雾遮罩层 - 覆盖在所有特效之上（可配置开关） -->
-    <div v-if="fogEnabled" class="global-fog-container" :style="{ ...getGlobalFogStyle(), ...fogClearMaskStyle }">
+    <!-- 陨石特效层（男法师技能） -->
+    <div v-if="meteorEffect" class="meteor-effect-layer">
+      <!-- 每颗陨石 -->
+      <div 
+        v-for="(cell, idx) in meteorEffect.targetCells" 
+        :key="'meteor-' + idx"
+        class="meteor"
+        :style="getMeteorStyle(cell, idx)"
+      >
+        <!-- 陨石本体 -->
+        <div class="meteor-body">☄️</div>
+        <!-- 火焰拖尾 -->
+        <div class="meteor-trail"></div>
+        <div class="meteor-trail trail-2"></div>
+        <div class="meteor-trail trail-3"></div>
+      </div>
+      
+      <!-- 落地爆炸效果 -->
+      <div 
+        v-for="(cell, idx) in meteorEffect.targetCells" 
+        :key="'meteor-explosion-' + idx"
+        class="meteor-explosion"
+        :style="getMeteorExplosionStyle(cell, idx)"
+      >
+        <!-- 冲击波 -->
+        <div class="shockwave"></div>
+        <div class="shockwave wave-2"></div>
+        <!-- 火花粒子 -->
+        <span v-for="i in 8" :key="'spark-' + i" class="spark" :class="`spark-${i}`"></span>
+      </div>
+      
+      <!-- 格子焦痕效果 -->
+      <div 
+        v-for="(cell, idx) in meteorEffect.targetCells" 
+        :key="'scorch-' + idx"
+        class="scorch-mark"
+        :style="getScorchStyle(cell)"
+      ></div>
+    </div>
+    
+    <!-- 障碍物摧毁特效（女法师被动） -->
+    <div v-if="obstacleDestroyEffect" class="obstacle-destroy-effect" :style="getObstacleDestroyStyle()">
+      <div class="debris-particle" v-for="i in 6" :key="'debris-' + i" :class="`debris-${i}`"></div>
+      <div class="destroy-flash"></div>
+    </div>
+    
+    <!-- 旋风斩特效层（男骑士技能） -->
+    <div v-if="whirlwindEffect" class="whirlwind-effect-layer">
+      <!-- 蓄力光效 -->
+      <div class="whirlwind-charge" :style="getWhirlwindChargeStyle()"></div>
+      
+      <!-- 8道弧形刀气 -->
+      <div class="whirlwind-blades" :style="getWhirlwindPosition()">
+        <div v-for="i in 8" :key="'blade-' + i" class="blade" :class="`blade-${i}`"></div>
+      </div>
+      
+      <!-- 命中闪光 -->
+      <div 
+        v-for="(cell, idx) in whirlwindEffect.targetCells" 
+        :key="'whirlwind-hit-' + idx"
+        class="whirlwind-hit-flash"
+        :style="getWhirlwindHitStyle(cell)"
+      ></div>
+    </div>
+    
+    <!-- 传送门摧毁特效（女法师被动） -->
+    <div v-if="portalDestroyEffect" class="portal-destroy-effect" :style="getPortalDestroyStyle()">
+      <div class="portal-shatter" v-for="i in 8" :key="'shard-' + i" :class="`shard-${i}`"></div>
+      <div class="portal-flash"></div>
+    </div>
+    
+    <!-- 卡牌无效化特效层（男盗贼技能） -->
+    <div v-if="cardNullifiedEffect" class="card-nullified-effect-layer">
+      <!-- 无效化标记 -->
+      <div class="nullified-mark">
+        <div class="nullified-x">✕</div>
+        <div class="nullified-text">无效化</div>
+      </div>
+    </div>
+    
+    <!-- 盗贼复制特效层（男盗贼技能） -->
+    <div v-if="thiefCopyEffect" class="thief-copy-effect-layer">
+      <!-- 复制卡牌展示 -->
+      <div class="copied-card">
+        <div class="copy-icon">🃏</div>
+        <div class="copy-text">复制执行</div>
+        <div class="copied-card-name">{{ thiefCopyEffect.copiedCard?.name || '未知卡牌' }}</div>
+      </div>
+    </div>
+    
+    <!-- 穿透箭特效层（男弓箭手技能） -->
+    <div v-if="piercingArrowEffect" class="piercing-arrow-effect-layer">
+      <!-- 蓄力光效 -->
+      <div class="arrow-charge" :style="getArrowChargeStyle()"></div>
+      
+      <!-- 四个方向的箭矢 -->
+      <div 
+        v-for="(arrow, idx) in piercingArrowEffect.arrowResults" 
+        :key="'arrow-' + idx"
+        class="arrow-beam-container"
+        :style="getArrowBeamContainerStyle()"
+      >
+        <!-- 箭矢光束 -->
+        <div 
+          class="arrow-beam"
+          :class="[`arrow-${arrow.direction}`, { 'blocked': arrow.blockedByObstacle }]"
+          :style="getArrowBeamStyle(arrow)"
+        >
+          <!-- 箭矢头部 -->
+          <div class="arrow-head" :class="arrow.direction"></div>
+          <!-- 穿透轨迹 -->
+          <div 
+            v-for="(cell, cellIdx) in arrow.path" 
+            :key="'path-' + cellIdx"
+            class="arrow-path-cell"
+            :style="getArrowPathCellStyle(cell, cellIdx, arrow.direction)"
+          ></div>
+          <!-- 阻挡标记 -->
+          <div v-if="arrow.blockedByObstacle" class="arrow-blocked-mark" :style="getArrowBlockedStyle(arrow)"></div>
+        </div>
+      </div>
+      
+      <!-- 命中闪光 -->
+      <div 
+        v-for="(cell, idx) in getHitCells()" 
+        :key="'hit-' + idx"
+        class="arrow-hit-flash"
+        :style="getArrowHitStyle(cell)"
+      ></div>
+    </div>
+    
+    <!-- 天降箭雨特效层（女弓箭手被动技能）- 支持多个特效同时显示 -->
+    <div v-if="arrowRainEffect.length > 0" class="arrow-rain-effect-layer">
+      <!-- 循环渲染每个箭雨特效 -->
+      <template v-for="(effect, idx) in arrowRainEffect" :key="'arrow-rain-' + idx">
+        <!-- 箭矢从天而降 -->
+        <div class="arrow-projectile" :style="getArrowRainStyle(effect)">
+          <!-- 箭头 -->
+          <div class="arrow-head"></div>
+          <!-- 箭身 -->
+          <div class="arrow-body"></div>
+          <!-- 下落拖尾 -->
+          <div class="arrow-fall-trail"></div>
+        </div>
+        
+        <!-- 落地命中效果 -->
+        <div 
+          class="arrow-hit-effect"
+          :class="effect.hitType"
+          :style="getArrowRainHitStyle(effect)"
+        >
+          <!-- 命中/落空闪光 -->
+          <div class="hit-flash"></div>
+          <!-- 冲击波纹 -->
+          <div class="hit-ripple"></div>
+        </div>
+      </template>
+    </div>
+    
+    <!-- 回忆过去特效层（男阅读者技能） -->
+    <div v-if="recallPastEffect" class="recall-past-effect-layer">
+      <!-- 历史视野格子高亮 -->
+      <div 
+        v-for="(cell, idx) in recallPastEffect.targetCells" 
+        :key="'recall-' + idx"
+        class="recall-cell"
+        :style="getRecallCellStyle(cell, idx)"
+      >
+        <!-- 金色光晕 -->
+        <div class="recall-glow"></div>
+        <!-- 闪烁边框 -->
+        <div class="recall-border"></div>
+      </div>
+      
+      <!-- 中心玩家位置特效 -->
+      <div class="recall-origin" :style="getRecallOriginStyle()">
+        <div class="recall-ring"></div>
+        <div class="recall-ring ring-2"></div>
+        <div class="recall-icon">📖</div>
+      </div>
+    </div>
+    
+ <!-- 全局迷雾遮罩层 - 覆盖在所有特效之上（可配置开关） -->
+    <div v-if="fogEnabled" class="global-fog-container" :class="{ 'fog-clearing': scoutEffects.length > 0 }" :style="{ ...getGlobalFogStyle(), ...fogClearMaskStyle }">
 <!-- SVG 噪音滤镜定义 - 统一风格，差异化颗粒 -->
       <svg class="fog-noise-svg">
         <!-- 大颗粒噪音 - 慢速层 -->
@@ -191,6 +374,10 @@ export default {
     fogEnabled: {
       type: Boolean,
       default: true
+    },
+    mySkill: {
+      type: Object,
+      default: null
     }
   },
   setup(props) {
@@ -348,6 +535,542 @@ export default {
       scoutEffects.value = []
     }
     
+    // ========== 技能特效状态变量 ==========
+    
+    // 陨石特效状态（男法师技能）
+    const meteorEffect = ref(null)
+    
+    // 障碍物摧毁特效状态（女法师被动）
+    const obstacleDestroyEffect = ref(null)
+    
+    // 传送门摧毁特效状态（女法师被动）
+    const portalDestroyEffect = ref(null)
+    
+    // 旋风斩特效状态（男骑士技能）
+    const whirlwindEffect = ref(null)
+    
+    // 回忆过去特效状态（男阅读者技能）
+    const recallPastEffect = ref(null)
+    
+    // 卡牌无效化特效状态（男盗贼技能）
+    const cardNullifiedEffect = ref(null)
+    
+    // 盗贼复制特效状态（男盗贼技能）
+    const thiefCopyEffect = ref(null)
+    
+    // 穿透箭特效状态（男弓箭手技能）
+    const piercingArrowEffect = ref(null)
+    
+    // 天降箭雨特效状态（女弓箭手被动技能）- 支持多个特效同时显示
+    const arrowRainEffect = ref([])
+    
+    // ========== 技能特效设置方法 ==========
+    
+    // 设置陨石特效（男法师技能）
+    const setMeteorEffect = (data) => {
+      console.log('[GameBoard] 🌠 设置陨石特效:', data)
+      
+      // 兼容多种数据格式：targetCells数组 或 targetPosition单个位置
+      const effectData = {
+        ...data,
+        targetCells: data.targetCells || (data.targetPosition ? [data.targetPosition] : [])
+      }
+      
+      console.log('[GameBoard] 陨石目标格子:', effectData.targetCells)
+      meteorEffect.value = effectData
+      console.log('[GameBoard] meteorEffect.value 已设置:', meteorEffect.value)
+      
+      // 2秒后清除特效
+      setTimeout(() => {
+        console.log('[GameBoard] 🌠 清除陨石特效')
+        meteorEffect.value = null
+      }, 2000)
+    }
+    
+    // 设置障碍物摧毁特效（女法师被动）
+    const setObstacleDestroyedEffect = (data) => {
+      obstacleDestroyEffect.value = data
+      
+      // 0.8秒后清除特效
+      setTimeout(() => {
+        obstacleDestroyEffect.value = null
+      }, 800)
+    }
+    
+    // 设置传送门摧毁特效（女法师被动）
+    const setPortalDestroyedEffect = (data) => {
+      portalDestroyEffect.value = data
+      
+      // 0.8秒后清除特效
+      setTimeout(() => {
+        portalDestroyEffect.value = null
+      }, 800)
+    }
+    
+    // 设置旋风斩特效（男骑士技能）
+    const setWhirlwindEffect = (data) => {
+      console.log('[GameBoard] 🌀 设置旋风斩特效:', data)
+      
+      // 兼容多种数据格式：确保position和targetCells都存在
+      const effectData = {
+        ...data,
+        position: data.position || data.targetPosition || data.targetCells?.[0],
+        targetCells: data.targetCells || (data.targetPosition ? [data.targetPosition] : [])
+      }
+      
+      console.log('[GameBoard] 旋风斩位置:', effectData.position)
+      console.log('[GameBoard] 旋风斩目标格子:', effectData.targetCells)
+      whirlwindEffect.value = effectData
+      console.log('[GameBoard] whirlwindEffect.value 已设置:', whirlwindEffect.value)
+      
+      // 1.5秒后清除特效
+      setTimeout(() => {
+        console.log('[GameBoard] 🌀 清除旋风斩特效')
+        whirlwindEffect.value = null
+      }, 1500)
+    }
+    
+    // 设置回忆过去特效（男阅读者技能）
+    const setRecallPastEffect = (data) => {
+      console.log('[GameBoard] 📖 设置回忆过去特效:', data)
+      
+      // 兼容多种数据格式：historyVision数组、targetCells数组、targetPosition、opponentPosition、positions数组
+      const effectData = {
+        ...data,
+        targetCells: data.historyVision || data.targetCells || 
+                     (data.targetPosition ? [data.targetPosition] : 
+                     (data.opponentPosition ? [data.opponentPosition] : 
+                     (data.positions || [])))
+      }
+      
+      recallPastEffect.value = effectData
+      console.log('[GameBoard] 回忆过去目标格子:', effectData.targetCells)
+      
+      // 将历史视野格子添加到探查效果中（本回合有效）
+      if (effectData.targetCells && effectData.targetCells.length > 0) {
+        // 为每个历史格子添加探查效果
+        for (const cell of effectData.targetCells) {
+          scoutEffects.value.push({
+            type: 'recall_past',  // 特殊类型标识回忆过去
+            position: cell,
+            playerIndex: data.playerIndex
+          })
+        }
+      }
+      
+      // 3秒后清除特效（回忆过去效果持续到回合结束）
+      setTimeout(() => {
+        console.log('[GameBoard] 📖 清除回忆过去特效')
+        recallPastEffect.value = null
+        // 同时清除迷雾消散效果（恢复迷雾）
+        scoutEffects.value = scoutEffects.value.filter(e => e.type !== 'recall_past')
+        console.log('[GameBoard] 📖 已清除 recall_past 探查效果，迷雾恢复')
+      }, 3000)
+    }
+    
+    // 设置卡牌无效化特效（男盗贼技能）
+    const setCardNullifiedEffect = (data) => {
+      cardNullifiedEffect.value = data
+      
+      // 1.5秒后清除特效
+      setTimeout(() => {
+        cardNullifiedEffect.value = null
+      }, 1500)
+    }
+    
+    // 设置盗贼复制特效（男盗贼技能）
+    const setThiefCopyEffect = (data) => {
+      thiefCopyEffect.value = data
+      
+      // 2秒后清除特效
+      setTimeout(() => {
+        thiefCopyEffect.value = null
+      }, 2000)
+    }
+    
+    // 设置穿透箭特效（男弓箭手技能）
+    const setPiercingArrowEffect = (data) => {
+      console.log('[GameBoard] ➵ 设置穿透箭特效:', data)
+      
+      // 兼容多种数据格式：确保position和arrowResults都存在
+      const position = data.position || data.targetPosition || data.from
+      
+      // 如果没有 arrowResults，生成默认的四方向箭矢
+      let arrowResults = data.arrowResults || data.results || []
+      
+      if (arrowResults.length === 0 && position) {
+        // 生成四个方向的默认箭矢路径
+        const directions = ['up', 'down', 'left', 'right']
+        const maxRange = 3  // 默认射程3格
+        
+        arrowResults = directions.map(dir => {
+          const path = []
+          for (let i = 1; i <= maxRange; i++) {
+            let cell = { ...position }
+            if (dir === 'up') cell.y -= i
+            else if (dir === 'down') cell.y += i
+            else if (dir === 'left') cell.x -= i
+            else if (dir === 'right') cell.x += i
+            
+            // 检查是否在地图范围内
+            const mapWidth = props.map.width || props.map.size
+            const mapHeight = props.map.height || props.map.size
+            if (cell.x >= 0 && cell.x < mapWidth && cell.y >= 0 && cell.y < mapHeight) {
+              path.push({ ...cell })
+            }
+          }
+          return {
+            direction: dir,
+            path: path,
+            blockedByObstacle: false
+          }
+        })
+        
+        console.log('[GameBoard] ➵ 生成了默认的四方向箭矢:', arrowResults)
+      }
+      
+      const effectData = {
+        ...data,
+        position: position,
+        arrowResults: arrowResults
+      }
+      
+      console.log('[GameBoard] 穿透箭位置:', effectData.position)
+      console.log('[GameBoard] 穿透箭结果:', effectData.arrowResults)
+      piercingArrowEffect.value = effectData
+      
+      // 1.5秒后清除特效
+      setTimeout(() => {
+        console.log('[GameBoard] ➵ 清除穿透箭特效')
+        piercingArrowEffect.value = null
+      }, 1500)
+    }
+    
+    // 设置天降箭雨特效（女弓箭手被动技能）- 支持多个特效同时显示
+    const setArrowRainEffect = (data) => {
+      console.log('[GameBoard] 🏹 设置天降箭雨特效:', data)
+      
+      // 兼容多种数据格式：targetPosition 或 targetCell
+      const effectData = {
+        ...data,
+        targetCell: data.targetCell || data.targetPosition,
+        id: Date.now() + Math.random() // 唯一标识符
+      }
+      
+      // 判断命中类型
+      if (data.isInvalid) {
+        // 落在障碍物或传送门上
+        effectData.hitType = 'invalid'
+      } else {
+        // 检查是否命中玩家
+        const hitPlayerIndex = props.players.findIndex(p => 
+          p?.position?.x === effectData.targetCell?.x && 
+          p?.position?.y === effectData.targetCell?.y
+        )
+        
+        if (hitPlayerIndex !== -1) {
+          effectData.hitType = 'hit'
+          effectData.hitPlayerIndex = hitPlayerIndex
+        } else {
+          effectData.hitType = 'miss'
+        }
+      }
+      
+      console.log('[GameBoard] 🏹 天降箭雨目标:', effectData.targetCell, '类型:', effectData.hitType)
+      
+      // 添加到数组中（支持多个特效同时显示）
+      arrowRainEffect.value.push(effectData)
+      
+      // 2秒后清除该特效
+      setTimeout(() => {
+        const index = arrowRainEffect.value.findIndex(e => e.id === effectData.id)
+        if (index !== -1) {
+          arrowRainEffect.value.splice(index, 1)
+        }
+      }, 2000)
+    }
+    
+    // ========== 技能特效位置计算方法 ==========
+    
+    // 获取陨石位置样式
+    const getMeteorStyle = (cell, idx) => {
+      const cellSize = 42
+      const padding = 16
+      const delay = idx * 0.15
+      return {
+        left: `${cell.x * cellSize + padding + 20}px`,
+        top: `${cell.y * cellSize + padding + 20}px`,
+        animationDelay: `${delay}s`
+      }
+    }
+    
+    // 获取陨石爆炸效果位置样式
+    const getMeteorExplosionStyle = (cell, idx) => {
+      const cellSize = 42
+      const padding = 16
+      const delay = 0.5 + idx * 0.15
+      return {
+        left: `${cell.x * cellSize + padding + 20}px`,
+        top: `${cell.y * cellSize + padding + 20}px`,
+        animationDelay: `${delay}s`
+      }
+    }
+    
+    // 获取焦痕效果位置样式
+    const getScorchStyle = (cell) => {
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${cell.x * cellSize + padding}px`,
+        top: `${cell.y * cellSize + padding}px`
+      }
+    }
+    
+    // 获取障碍物摧毁特效位置
+    const getObstacleDestroyStyle = () => {
+      if (!obstacleDestroyEffect.value) return {}
+      const { position } = obstacleDestroyEffect.value
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${position.x * cellSize + padding + 20}px`,
+        top: `${position.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取传送门摧毁特效位置
+    const getPortalDestroyStyle = () => {
+      if (!portalDestroyEffect.value) return {}
+      const { position } = portalDestroyEffect.value
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${position.x * cellSize + padding + 20}px`,
+        top: `${position.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取旋风斩蓄力光效位置
+    const getWhirlwindChargeStyle = () => {
+      if (!whirlwindEffect.value) return {}
+      const { position } = whirlwindEffect.value
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${position.x * cellSize + padding + 20}px`,
+        top: `${position.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取旋风斩刀气位置
+    const getWhirlwindPosition = () => {
+      if (!whirlwindEffect.value) return {}
+      const { position } = whirlwindEffect.value
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${position.x * cellSize + padding + 20}px`,
+        top: `${position.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取旋风斩命中闪光位置
+    const getWhirlwindHitStyle = (cell) => {
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${cell.x * cellSize + padding + 20}px`,
+        top: `${cell.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取回忆过去格子样式
+    const getRecallCellStyle = (cell, idx) => {
+      const cellSize = 42
+      const padding = 18
+      const delay = idx * 0.03
+      return {
+        left: `${cell.x * cellSize + padding}px`,
+        top: `${cell.y * cellSize + padding}px`,
+        animationDelay: `${delay}s`
+      }
+    }
+    
+    // 获取回忆过去中心位置样式（玩家当前位置）
+    const getRecallOriginStyle = () => {
+      if (!recallPastEffect.value) return {}
+      const playerIndex = recallPastEffect.value.playerIndex
+      const player = props.players[playerIndex]
+      if (!player?.position) return {}
+      
+      const cellSize = 42
+      const padding = 18
+      return {
+        left: `${player.position.x * cellSize + padding + 20}px`,
+        top: `${player.position.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取箭矢下落样式（天降箭雨）- 支持多个特效
+    const getArrowRainStyle = (effect) => {
+      if (!effect?.targetCell) return {}
+      const { targetCell } = effect
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${targetCell.x * cellSize + padding + 20}px`,
+        top: `${targetCell.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取落地命中效果样式（天降箭雨）- 支持多个特效
+    const getArrowRainHitStyle = (effect) => {
+      if (!effect?.targetCell) return {}
+      const { targetCell } = effect
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${targetCell.x * cellSize + padding + 20}px`,
+        top: `${targetCell.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取蓄力光效位置（穿透箭）
+    const getArrowChargeStyle = () => {
+      if (!piercingArrowEffect.value) return {}
+      const { position } = piercingArrowEffect.value
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${position.x * cellSize + padding + 20}px`,
+        top: `${position.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取箭矢容器位置（穿透箭）
+    const getArrowBeamContainerStyle = () => {
+      if (!piercingArrowEffect.value) return {}
+      const { position } = piercingArrowEffect.value
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${position.x * cellSize + padding + 20}px`,
+        top: `${position.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 获取箭矢光束样式（穿透箭）
+    const getArrowBeamStyle = (arrow) => {
+      const cellSize = 42
+      const pathLength = arrow.path.length
+      const beamLength = pathLength * cellSize
+      
+      return {
+        '--beam-length': `${beamLength}px`,
+        '--path-length': pathLength
+      }
+    }
+    
+    // 获取穿透轨迹格子样式（穿透箭）
+    const getArrowPathCellStyle = (cell, cellIdx, direction) => {
+      const cellSize = 42
+      const delay = cellIdx * 0.08
+      
+      let offsetX = 0, offsetY = 0
+      if (direction === 'up') offsetY = -(cellIdx + 1) * cellSize
+      else if (direction === 'down') offsetY = (cellIdx + 1) * cellSize
+      else if (direction === 'left') offsetX = -(cellIdx + 1) * cellSize
+      else if (direction === 'right') offsetX = (cellIdx + 1) * cellSize
+      
+      return {
+        transform: `translate(${offsetX}px, ${offsetY}px)`,
+        animationDelay: `${delay}s`
+      }
+    }
+    
+    // 获取阻挡标记样式（穿透箭）
+    const getArrowBlockedStyle = (arrow) => {
+      if (!arrow.blockedPosition) return {}
+      const cellSize = 42
+      const { position } = piercingArrowEffect.value
+      
+      const offsetX = (arrow.blockedPosition.x - position.x) * cellSize
+      const offsetY = (arrow.blockedPosition.y - position.y) * cellSize
+      
+      return {
+        left: `${offsetX}px`,
+        top: `${offsetY}px`
+      }
+    }
+    
+    // 获取所有被命中的格子（穿透箭）
+    const getHitCells = () => {
+      if (!piercingArrowEffect.value) return []
+      const hitCells = []
+      
+      for (const arrow of piercingArrowEffect.value.arrowResults) {
+        for (const cell of arrow.path) {
+          hitCells.push(cell)
+        }
+      }
+      
+      return hitCells
+    }
+    
+    // 获取命中闪光样式（穿透箭）
+    const getArrowHitStyle = (cell) => {
+      const cellSize = 42
+      const padding = 16
+      return {
+        left: `${cell.x * cellSize + padding + 20}px`,
+        top: `${cell.y * cellSize + padding + 20}px`
+      }
+    }
+    
+    // 设置技能特效 - 统一入口
+    const setSkillEffect = (data) => {
+      console.log('[GameBoard] 技能特效:', data)
+      
+      const skillId = data.skillId || ''
+      
+      // 使用 includes 匹配，支持完整技能ID格式（如 knight_male_whirlwind）
+      if (skillId.includes('meteor')) {
+        console.log('[GameBoard] 🌠 匹配到陨石特效')
+        setMeteorEffect(data)
+      } else if (skillId.includes('whirlwind')) {
+        console.log('[GameBoard] 🌀 匹配到旋风斩特效')
+        setWhirlwindEffect(data)
+      } else if (skillId.includes('recall') || skillId.includes('history')) {
+        console.log('[GameBoard] 📖 匹配到回忆过去特效')
+        setRecallPastEffect(data)
+      } else if (skillId.includes('nullified')) {
+        console.log('[GameBoard] ✕ 匹配到卡牌无效化特效')
+        setCardNullifiedEffect(data)
+      } else if (skillId.includes('copy')) {
+        console.log('[GameBoard] 🃏 匹配到盗贼复制特效')
+        setThiefCopyEffect(data)
+      } else if (skillId.includes('pierce')) {
+        console.log('[GameBoard] ➵ 匹配到穿透箭特效')
+        setPiercingArrowEffect(data)
+      } else if (skillId.includes('arrow_rain')) {
+        console.log('[GameBoard] 🏹 匹配到天降箭雨特效')
+        setArrowRainEffect(data)
+      } else if (skillId.includes('obstacle_destroyed')) {
+        console.log('[GameBoard] 💥 匹配到障碍物摧毁特效')
+        setObstacleDestroyedEffect(data)
+      } else if (skillId.includes('portal_destroyed')) {
+        console.log('[GameBoard] 🌀 匹配到传送门摧毁特效')
+        setPortalDestroyedEffect(data)
+      } else {
+        console.warn('[GameBoard] 未知技能特效:', data.skillId)
+      }
+    }
+    
+    // 设置障碍物销毁特效（兼容旧接口）
+    const setObstacleDestroyed = (data) => {
+      setObstacleDestroyedEffect(data)
+    }
+    
     const cells = computed(() => {
       const result = []
       const width = props.map.width || props.map.size
@@ -355,7 +1078,9 @@ export default {
       
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
-          const isObstacle = props.map.obstacles?.some(o => o.x === x && o.y === y)
+          const obstacle = props.map.obstacles?.find(o => o.x === x && o.y === y)
+          const isObstacle = !!obstacle
+          const isBoundary = obstacle?.isBoundary || false
           const hasPlayer1 = props.players[0]?.position?.x === x && props.players[0]?.position?.y === y
           const hasPlayer2 = props.players[1]?.position?.x === x && props.players[1]?.position?.y === y
           
@@ -391,6 +1116,7 @@ export default {
             x,
             y,
             isObstacle,
+            isBoundary,
             hasPlayer1,
             hasPlayer2,
             isHighlighted: false,
@@ -414,20 +1140,21 @@ export default {
     const getGlobalFogStyle = () => {
       const width = props.map.width || props.map.size
       const height = props.map.height || props.map.size
-      const cellSize = 42  // 统一：40px格子 + 2px间隙
-      const gridPadding = 2  // grid 内边距
-      const padding = 16   // game-board padding (1rem)
+      const cellVisualSize = 40  // 格子本身尺寸
+      const gapSize = 2          // 格子间隙
+      const gridPadding = 2      // grid 内边距
+      const padding = 16         // game-board padding (1rem)
       
-      // 正确计算：格子总宽 + grid两侧padding
+      // 正确计算：N个格子 + (N-1)个间隙 + grid两侧padding
       // 每行 N 个格子 = N × 40px + (N-1) × 2px gap + 2 × 2px padding = 42N + 2
-      const actualWidth = width * cellSize + gridPadding * 2
-      const actualHeight = height * cellSize + gridPadding * 2
+      const actualWidth = width * cellVisualSize + (width - 1) * gapSize + gridPadding * 2
+      const actualHeight = height * cellVisualSize + (height - 1) * gapSize + gridPadding * 2
       
       return {
         width: `${actualWidth}px`,
         height: `${actualHeight}px`,
-        left: `${padding}px`,
-        top: `${padding}px`
+        left: `${padding + gridPadding}px`,
+        top: `${padding + gridPadding}px`
       }
     }
     
@@ -446,7 +1173,7 @@ export default {
       const mapWidth = props.map.width || props.map.size
       const mapHeight = props.map.height || props.map.size
       
-      // 玩家位置转换为像素坐标（格子中心）
+      // 玩家位置转换为像素坐标（相对于迷雾容器，迷雾容器已定位到grid区域）
       const centerX = myPosition.value.x * cellSize + cellSize / 2
       const centerY = myPosition.value.y * cellSize + cellSize / 2
       
@@ -454,8 +1181,20 @@ export default {
       let clearRadius = 1 * cellSize  // 42px 内完全清晰
       let fogRadius = 2 * cellSize    // 84px 外完全迷雾
       
+      // 女阅读者被动技能：常驻探查效果+1（基础可视范围增加0.5格）
+      const hasFemaleReaderPassive = props.mySkill?.id === 'reader_female'
+      
       // 环绕探查：扩大可视范围到1.5倍
       if (scoutEffects.value.some(e => e.type === 'around')) {
+        clearRadius = 1.5 * cellSize  // 63px 内完全清晰
+        fogRadius = 2.5 * cellSize    // 105px 外完全迷雾
+        // 女阅读者使用环绕探查牌时，效果额外+1（总范围2.5格）
+        if (hasFemaleReaderPassive) {
+          clearRadius = 2.5 * cellSize  // 105px 内完全清晰
+          fogRadius = 3.5 * cellSize    // 147px 外完全迷雾
+        }
+      } else if (hasFemaleReaderPassive) {
+        // 女阅读者常驻效果：基础可视范围+0.5格
         clearRadius = 1.5 * cellSize  // 63px 内完全清晰
         fogRadius = 2.5 * cellSize    // 105px 外完全迷雾
       }
@@ -478,8 +1217,8 @@ export default {
           // 每个格子一个小光圈
           masks.push(`radial-gradient(circle at ${cellCenterX}px ${cellCenterY}px, 
             transparent 0%, 
-            transparent ${cellSize * 0.6}px, 
-            black ${cellSize}px)`)
+            transparent ${cellSize * 0.55}px, 
+            black ${cellSize * 0.75}px)`)
         }
       }
       
@@ -492,8 +1231,24 @@ export default {
           // 每个格子一个小光圈
           masks.push(`radial-gradient(circle at ${cellCenterX}px ${cellCenterY}px, 
             transparent 0%, 
-            transparent ${cellSize * 0.6}px, 
-            black ${cellSize}px)`)
+            transparent ${cellSize * 0.55}px, 
+            black ${cellSize * 0.75}px)`)
+        }
+      }
+      
+      // 4. 回忆过去（男阅读者技能）：照亮历史视野中的所有格子
+      const recallPastEffects = scoutEffects.value.filter(e => e.type === 'recall_past')
+      if (recallPastEffects.length > 0) {
+        for (const effect of recallPastEffects) {
+          if (effect.position) {
+            const cellCenterX = effect.position.x * cellSize + cellSize / 2
+            const cellCenterY = effect.position.y * cellSize + cellSize / 2
+            // 每个历史格子一个小光圈
+            masks.push(`radial-gradient(circle at ${cellCenterX}px ${cellCenterY}px, 
+              transparent 0%, 
+              transparent ${cellSize * 0.55}px, 
+              black ${cellSize * 0.75}px)`)
+          }
         }
       }
       
@@ -601,6 +1356,8 @@ export default {
       clearDefense,
       setScoutEffect,
       clearScoutEffect,
+      setSkillEffect,
+      setObstacleDestroyed,
       getTrailStyle,
       getShieldStyle,
       getAttackEffectStyle,
@@ -614,7 +1371,54 @@ export default {
       themeClass,
       themeStyle,
       getObstacleClass,
-      getObstacleShape
+      getObstacleShape,
+      // ========== 技能特效状态变量和方法 ==========
+      // 陨石特效（男法师技能）
+      meteorEffect,
+      setMeteorEffect,
+      getMeteorStyle,
+      getMeteorExplosionStyle,
+      getScorchStyle,
+      // 障碍物摧毁特效（女法师被动）
+      obstacleDestroyEffect,
+      setObstacleDestroyedEffect,
+      getObstacleDestroyStyle,
+      // 传送门摧毁特效（女法师被动）
+      portalDestroyEffect,
+      setPortalDestroyedEffect,
+      getPortalDestroyStyle,
+      // 旋风斩特效（男骑士技能）
+      whirlwindEffect,
+      setWhirlwindEffect,
+      getWhirlwindChargeStyle,
+      getWhirlwindPosition,
+      getWhirlwindHitStyle,
+      // 回忆过去特效（男阅读者技能）
+      recallPastEffect,
+      setRecallPastEffect,
+      getRecallCellStyle,
+      getRecallOriginStyle,
+      // 卡牌无效化特效（男盗贼技能）
+      cardNullifiedEffect,
+      setCardNullifiedEffect,
+      // 盗贼复制特效（男盗贼技能）
+      thiefCopyEffect,
+      setThiefCopyEffect,
+      // 穿透箭特效（男弓箭手技能）
+      piercingArrowEffect,
+      setPiercingArrowEffect,
+      getArrowChargeStyle,
+      getArrowBeamContainerStyle,
+      getArrowBeamStyle,
+      getArrowPathCellStyle,
+      getArrowBlockedStyle,
+      getHitCells,
+      getArrowHitStyle,
+      // 天降箭雨特效（女弓箭手被动技能）
+      arrowRainEffect,
+      setArrowRainEffect,
+      getArrowRainStyle,
+      getArrowRainHitStyle
     }
   }
 }
@@ -627,6 +1431,7 @@ export default {
   border-radius: 12px;
   box-shadow: 0 8px 30px rgba(0,0,0,0.2);
   position: relative;
+  /* 不设置 overflow: hidden，确保边界位置的角色不被裁剪 */
 }
 
 .grid {
@@ -656,6 +1461,16 @@ export default {
 
 .cell.obstacle {
   background: #343a40;
+}
+
+/* 边界障碍物 - 特色地形填充，默认深灰色 */
+.cell.boundary {
+  background: #757575 !important;
+  border: none;
+}
+
+.cell.boundary .obstacle-mark {
+  display: none;
 }
 
 .cell.player1 {
@@ -1595,7 +2410,12 @@ export default {
   z-index: 100;
   border-radius: 8px;
   overflow: hidden;
+  /* mask-image 过渡 - 实现探查效果的平滑切换 */
+  transition: mask-image 0.3s ease-out, -webkit-mask-image 0.3s ease-out;
 }
+
+/* 注意：不再使用 opacity 动画，探查效果完全由 mask-image 控制 */
+/* 这样可以避免遮罩和动画不同步导致的迷雾闪烁问题 */
 
 /* 深灰色底层 - 兜底遮挡，确保无孔洞 */
 .global-fog-base {
@@ -1618,6 +2438,16 @@ export default {
   height: 200%;
   background: #4a5568;
   z-index: 1;
+  /* 过渡动画 - 迷雾消散/恢复时平滑变化 */
+  transition: opacity 0.8s ease-out, filter 0.8s ease-out;
+}
+
+/* 迷雾消散状态 - 不修改噪音层透明度，探查效果仅通过 mask-image 控制 */
+/* 注意：不要修改 opacity，否则探查结束后透明度无法正确恢复 */
+
+/* 底层默认状态 - 无需 transition */
+.global-fog-base {
+  /* 保持默认透明度 */
 }
 
 /* 大颗粒噪音层 - 最慢漂移 */
@@ -1898,6 +2728,11 @@ export default {
   background: #2e7d32;
 }
 
+/* 森林主题边界 - 深绿色 */
+.theme-forest .cell.boundary {
+  background: #1b5e20 !important;
+}
+
 .theme-forest .theme-particle {
   background: #81c784;
   box-shadow: 0 0 6px #4caf50;
@@ -1938,6 +2773,11 @@ export default {
 
 .theme-desert .cell.obstacle {
   background: #e65100;
+}
+
+/* 沙漠主题边界 - 深橙黄色 */
+.theme-desert .cell.boundary {
+  background: #bf360c !important;
 }
 
 .theme-desert .theme-particle {
@@ -1987,6 +2827,11 @@ export default {
   background: #0d47a1;
 }
 
+/* 冰雪主题边界 - 深蓝色 */
+.theme-ice .cell.boundary {
+  background: #0d47a1 !important;
+}
+
 .theme-ice .theme-particle {
   background: #64b5f6;
   box-shadow: 0 0 8px #2196f3;
@@ -2027,6 +2872,11 @@ export default {
 
 .theme-volcano .cell.obstacle {
   background: #b71c1c;
+}
+
+/* 火山主题边界 - 深红色 */
+.theme-volcano .cell.boundary {
+  background: #b71c1c !important;
 }
 
 .theme-volcano .theme-particle {
@@ -2072,6 +2922,11 @@ export default {
   background: #006064;
 }
 
+/* 海洋主题边界 - 深青色 */
+.theme-ocean .cell.boundary {
+  background: #006064 !important;
+}
+
 .theme-ocean .theme-particle {
   background: #4dd0e1;
   box-shadow: 0 0 8px #00bcd4;
@@ -2114,6 +2969,11 @@ export default {
   background: #1a1a2e;
 }
 
+/* 暗夜主题边界 - 深灰蓝 */
+.theme-night .cell.boundary {
+  background: #37474f !important;
+}
+
 .theme-night .theme-particle {
   background: #90a4ae;
   box-shadow: 0 0 10px #78909c;
@@ -2154,6 +3014,16 @@ export default {
 
 .theme-skull .cell.obstacle {
   background: #212121;
+}
+
+/* 骷髅主题边界 - 深灰色 */
+.theme-skull .cell.boundary {
+  background: #616161 !important;
+}
+
+/* 古城主题边界 - 深灰褐色 */
+.theme-ruins .cell.boundary {
+  background: #424242 !important;
 }
 
 .theme-skull .theme-particle {
@@ -2508,5 +3378,742 @@ export default {
 
 .cell.player2 {
   background: #ff6b6b !important;
+}
+
+/* ========== 陨石特效（男法师技能） ========== */
+.meteor-effect-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+  overflow: visible;
+}
+
+.meteor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  animation: meteor-fall 0.8s ease-in forwards;
+}
+
+.meteor-body {
+  font-size: 2rem;
+  filter: drop-shadow(0 0 10px #ff6b00) drop-shadow(0 0 20px #ff4500);
+  transform: rotate(-45deg);
+}
+
+.meteor-trail {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 60px;
+  background: linear-gradient(to top,
+    transparent 0%,
+    rgba(255, 100, 0, 0.3) 20%,
+    rgba(255, 150, 0, 0.6) 50%,
+    rgba(255, 200, 50, 0.8) 80%,
+    rgba(255, 255, 100, 1) 100%
+  );
+  border-radius: 4px;
+  transform: translate(-50%, -100%) rotate(180deg);
+  animation: trail-flicker 0.1s ease-in-out infinite alternate;
+  filter: blur(2px);
+}
+
+.meteor-trail.trail-2 {
+  width: 5px;
+  height: 45px;
+  transform: translate(-50%, -100%) rotate(175deg);
+  animation-delay: 0.05s;
+}
+
+.meteor-trail.trail-3 {
+  width: 4px;
+  height: 35px;
+  transform: translate(-50%, -100%) rotate(185deg);
+  animation-delay: 0.1s;
+}
+
+.meteor-explosion {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  animation: explosion-appear 0.8s ease-out forwards;
+}
+
+.shockwave {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 100, 0, 0.8);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: shockwave-expand 0.6s ease-out forwards;
+}
+
+.shockwave.wave-2 {
+  animation-delay: 0.1s;
+  border-color: rgba(255, 150, 0, 0.6);
+}
+
+.spark {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: #ff6b00;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #ff4500;
+  animation: spark-fly 0.5s ease-out forwards;
+}
+
+.spark-1 { --angle: 0deg; --dist: 25px; }
+.spark-2 { --angle: 45deg; --dist: 30px; }
+.spark-3 { --angle: 90deg; --dist: 22px; }
+.spark-4 { --angle: 135deg; --dist: 28px; }
+.spark-5 { --angle: 180deg; --dist: 20px; }
+.spark-6 { --angle: 225deg; --dist: 32px; }
+.spark-7 { --angle: 270deg; --dist: 18px; }
+.spark-8 { --angle: 315deg; --dist: 26px; }
+
+.scorch-mark {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  background: radial-gradient(circle,
+    rgba(80, 40, 20, 0.6) 0%,
+    rgba(60, 30, 15, 0.4) 40%,
+    transparent 70%
+  );
+  border-radius: 4px;
+  animation: scorch-appear 0.5s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes meteor-fall {
+  0% { transform: translate(-50%, -200%); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translate(-50%, -50%); opacity: 1; }
+}
+
+@keyframes trail-flicker {
+  0% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+@keyframes explosion-appear {
+  0% { opacity: 0; }
+  20% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes shockwave-expand {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+}
+
+@keyframes spark-fly {
+  0% { transform: translate(-50%, -50%) rotate(var(--angle)) translateX(0); opacity: 1; }
+  100% { transform: translate(-50%, -50%) rotate(var(--angle)) translateX(var(--dist)); opacity: 0; }
+}
+
+@keyframes scorch-appear {
+  0% { opacity: 0; transform: scale(0.5); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* ========== 障碍物摧毁特效（女法师被动） ========== */
+.obstacle-destroy-effect {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 55;
+}
+
+.debris-particle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #666;
+  border-radius: 2px;
+  animation: debris-fly 0.6s ease-out forwards;
+}
+
+.debris-1 { --angle: 20deg; --dist: 25px; animation-delay: 0s; background: #777; }
+.debris-2 { --angle: 70deg; --dist: 30px; animation-delay: 0.05s; background: #888; }
+.debris-3 { --angle: 120deg; --dist: 22px; animation-delay: 0.1s; background: #666; }
+.debris-4 { --angle: 200deg; --dist: 28px; animation-delay: 0.02s; background: #777; }
+.debris-5 { --angle: 260deg; --dist: 35px; animation-delay: 0.08s; background: #888; }
+.debris-6 { --angle: 330deg; --dist: 20px; animation-delay: 0.12s; background: #666; }
+
+.destroy-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 30px;
+  height: 30px;
+  background: radial-gradient(circle,
+    rgba(255, 200, 100, 0.9) 0%,
+    rgba(255, 150, 50, 0.5) 50%,
+    transparent 100%
+  );
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: flash-quick 0.3s ease-out forwards;
+}
+
+@keyframes debris-fly {
+  0% { transform: translate(-50%, -50%) rotate(var(--angle)) translateX(0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) rotate(var(--angle)) translateX(var(--dist)) rotate(180deg); opacity: 0; }
+}
+
+@keyframes flash-quick {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+}
+
+/* ========== 传送门摧毁特效（女法师被动） ========== */
+.portal-destroy-effect {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 55;
+}
+
+.portal-shatter {
+  position: absolute;
+  width: 6px;
+  height: 10px;
+  background: linear-gradient(135deg, #a855f7, #7c3aed);
+  border-radius: 1px;
+  animation: shard-scatter 0.5s ease-out forwards;
+}
+
+.shard-1 { --angle: 0deg; --dist: 20px; animation-delay: 0s; }
+.shard-2 { --angle: 45deg; --dist: 25px; animation-delay: 0.03s; }
+.shard-3 { --angle: 90deg; --dist: 18px; animation-delay: 0.06s; }
+.shard-4 { --angle: 135deg; --dist: 28px; animation-delay: 0.02s; }
+.shard-5 { --angle: 180deg; --dist: 22px; animation-delay: 0.05s; }
+.shard-6 { --angle: 225deg; --dist: 26px; animation-delay: 0.08s; }
+.shard-7 { --angle: 270deg; --dist: 15px; animation-delay: 0.01s; }
+.shard-8 { --angle: 315deg; --dist: 24px; animation-delay: 0.04s; }
+
+.portal-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  background: radial-gradient(circle,
+    rgba(168, 85, 247, 0.9) 0%,
+    rgba(124, 58, 237, 0.5) 50%,
+    transparent 100%
+  );
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: flash-quick 0.3s ease-out forwards;
+}
+
+@keyframes shard-scatter {
+  0% { transform: translate(-50%, -50%) rotate(var(--angle)) translateX(0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) rotate(var(--angle)) translateX(var(--dist)) rotate(270deg); opacity: 0; }
+}
+
+/* ========== 旋风斩特效（男骑士技能） ========== */
+.whirlwind-effect-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+  overflow: visible;
+}
+
+.whirlwind-charge {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(100, 200, 255, 0.8) 0%,
+    rgba(50, 150, 255, 0.4) 50%,
+    transparent 100%
+  );
+  animation: charge-pulse 0.3s ease-out forwards;
+  box-shadow: 0 0 20px rgba(100, 200, 255, 0.6);
+}
+
+@keyframes charge-pulse {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+}
+
+.whirlwind-blades {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+}
+
+.blade {
+  position: absolute;
+  width: 50px;
+  height: 4px;
+  background: linear-gradient(90deg,
+    rgba(100, 200, 255, 0.9) 0%,
+    rgba(50, 150, 255, 0.6) 50%,
+    transparent 100%
+  );
+  transform-origin: left center;
+  left: 50%;
+  top: 50%;
+  box-shadow: 0 0 10px rgba(100, 200, 255, 0.8);
+  animation: blade-sweep 0.5s ease-out forwards;
+}
+
+.blade-1 { transform: translate(0, -50%) rotate(0deg); animation-delay: 0s; }
+.blade-2 { transform: translate(0, -50%) rotate(45deg); animation-delay: 0.05s; }
+.blade-3 { transform: translate(0, -50%) rotate(90deg); animation-delay: 0.1s; }
+.blade-4 { transform: translate(0, -50%) rotate(135deg); animation-delay: 0.15s; }
+.blade-5 { transform: translate(0, -50%) rotate(180deg); animation-delay: 0.2s; }
+.blade-6 { transform: translate(0, -50%) rotate(225deg); animation-delay: 0.25s; }
+.blade-7 { transform: translate(0, -50%) rotate(270deg); animation-delay: 0.3s; }
+.blade-8 { transform: translate(0, -50%) rotate(315deg); animation-delay: 0.35s; }
+
+@keyframes blade-sweep {
+  0% { opacity: 0; transform: translate(0, -50%) scaleX(0); }
+  30% { opacity: 1; transform: translate(0, -50%) scaleX(1); }
+  100% { opacity: 0; transform: translate(0, -50%) scaleX(1); }
+}
+
+.whirlwind-hit-flash {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border-radius: 4px;
+  background: radial-gradient(circle, rgba(100, 200, 255, 0.8) 0%, transparent 70%);
+  animation: hit-flash 0.4s ease-out forwards;
+}
+
+@keyframes hit-flash {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+
+/* ========== 回忆过去特效（男阅读者技能） ========== */
+.recall-past-effect-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+  overflow: visible;
+}
+
+.recall-cell {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  animation: recall-cell-appear 0.5s ease-out forwards;
+}
+
+.recall-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center,
+    rgba(255, 215, 0, 0.4) 0%,
+    rgba(255, 193, 37, 0.3) 40%,
+    rgba(255, 165, 0, 0.15) 70%,
+    transparent 100%
+  );
+  border-radius: 4px;
+  animation: glow-pulse 1.5s ease-in-out infinite;
+}
+
+.recall-border {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 2px solid rgba(255, 215, 0, 0.8);
+  border-radius: 4px;
+  animation: border-flicker 0.8s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.6), inset 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+@keyframes recall-cell-appear {
+  0% { opacity: 0; transform: scale(0.5); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes border-flicker {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; box-shadow: 0 0 12px rgba(255, 215, 0, 0.8), inset 0 0 12px rgba(255, 215, 0, 0.4); }
+}
+
+.recall-origin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.recall-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 50px;
+  height: 50px;
+  border: 3px solid rgba(255, 215, 0, 0.6);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: recall-ring-expand 1.5s ease-out infinite;
+}
+
+.recall-ring.ring-2 {
+  animation-delay: 0.5s;
+}
+
+@keyframes recall-ring-expand {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+}
+
+.recall-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.5rem;
+  animation: recall-icon-pulse 1s ease-in-out infinite;
+}
+
+@keyframes recall-icon-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.2); }
+}
+
+/* ========== 卡牌无效化特效（男盗贼技能） ========== */
+.card-nullified-effect-layer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 70;
+}
+
+.nullified-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: nullified-appear 1.5s ease-out forwards;
+}
+
+.nullified-x {
+  font-size: 3rem;
+  color: #ef4444;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.8), 0 0 20px rgba(239, 68, 68, 0.6), 0 0 30px rgba(239, 68, 68, 0.4);
+  animation: x-pulse 0.5s ease-in-out infinite;
+}
+
+.nullified-text {
+  font-size: 1rem;
+  color: #fca5a5;
+  font-weight: bold;
+  margin-top: 5px;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+  animation: text-flash 0.8s ease-in-out infinite;
+}
+
+@keyframes nullified-appear {
+  0% { opacity: 0; transform: scale(0.3); }
+  30% { opacity: 1; transform: scale(1.3); }
+  50% { transform: scale(1); }
+  100% { opacity: 0; }
+}
+
+@keyframes x-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+@keyframes text-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ========== 盗贼复制特效（男盗贼技能） ========== */
+.thief-copy-effect-layer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 70;
+}
+
+.copied-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 15px 25px;
+  background: linear-gradient(135deg, rgba(75, 85, 99, 0.9) 0%, rgba(55, 65, 81, 0.95) 100%);
+  border: 2px solid rgba(156, 163, 175, 0.6);
+  border-radius: 12px;
+  box-shadow: 0 0 20px rgba(156, 163, 175, 0.4), 0 0 40px rgba(75, 85, 99, 0.3), inset 0 0 15px rgba(255, 255, 255, 0.1);
+  animation: copied-appear 2s ease-out forwards;
+}
+
+.copy-icon {
+  font-size: 2rem;
+  animation: icon-spin 1s ease-in-out;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
+}
+
+.copy-text {
+  font-size: 0.9rem;
+  color: #9ca3af;
+  font-weight: bold;
+  margin-top: 5px;
+  text-shadow: 0 0 5px rgba(156, 163, 175, 0.5);
+}
+
+.copied-card-name {
+  font-size: 1rem;
+  color: #f3f4f6;
+  font-weight: bold;
+  margin-top: 8px;
+  padding: 5px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  text-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+}
+
+@keyframes copied-appear {
+  0% { opacity: 0; transform: scale(0.5) rotateY(180deg); }
+  30% { opacity: 1; transform: scale(1.1) rotateY(0deg); }
+  50% { transform: scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes icon-spin {
+  0% { transform: rotateY(180deg); }
+  100% { transform: rotateY(0deg); }
+}
+
+/* ========== 穿透箭特效（男弓箭手技能） ========== */
+.piercing-arrow-effect-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+  overflow: visible;
+}
+
+.arrow-charge {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(74, 222, 128, 0.8) 0%, rgba(34, 197, 94, 0.4) 50%, transparent 100%);
+  animation: arrow-charge-pulse 0.3s ease-out forwards;
+  box-shadow: 0 0 25px rgba(74, 222, 128, 0.7);
+}
+
+@keyframes arrow-charge-pulse {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  50% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+}
+
+.arrow-beam-container {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.arrow-beam {
+  position: absolute;
+  width: 4px;
+  background: linear-gradient(to bottom, rgba(74, 222, 128, 0.9) 0%, rgba(34, 197, 94, 0.6) 50%, transparent 100%);
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.8);
+}
+
+.arrow-head {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 12px solid #4ade80;
+  filter: drop-shadow(0 0 5px rgba(74, 222, 128, 0.8));
+}
+
+.arrow-hit-flash {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(74, 222, 128, 0.8) 0%, transparent 70%);
+  animation: hit-flash 0.4s ease-out forwards;
+}
+
+/* ========== 天降箭雨特效（女弓箭手被动技能） ========== */
+.arrow-rain-effect-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 110;
+  overflow: visible;
+}
+
+.arrow-projectile {
+  position: absolute;
+  animation: arrow-fall 0.8s ease-in forwards;
+}
+
+.arrow-projectile .arrow-head {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 12px solid #fbbf24;
+  filter: drop-shadow(0 0 5px rgba(251, 191, 36, 0.8));
+}
+
+.arrow-projectile .arrow-body {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 30px;
+  background: linear-gradient(to bottom, #fbbf24 0%, #f59e0b 50%, #d97706 100%);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+}
+
+.arrow-projectile .arrow-fall-trail {
+  position: absolute;
+  top: 42px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 20px;
+  background: linear-gradient(to bottom, rgba(251, 191, 36, 0.5) 0%, transparent 100%);
+}
+
+@keyframes arrow-fall {
+  0% { transform: translateY(-200px); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.arrow-hit-effect {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  animation: hit-effect-appear 0.6s ease-out forwards;
+}
+
+.arrow-hit-effect .hit-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: hit-flash-expand 0.5s ease-out forwards;
+}
+
+.arrow-hit-effect.hit .hit-flash {
+  background: radial-gradient(circle, rgba(255, 100, 0, 0.8) 0%, transparent 70%);
+  box-shadow: 0 0 20px rgba(255, 100, 0, 0.6);
+}
+
+.arrow-hit-effect.damage .hit-flash {
+  background: radial-gradient(circle, rgba(255, 100, 0, 0.8) 0%, transparent 70%);
+  box-shadow: 0 0 20px rgba(255, 100, 0, 0.6);
+}
+
+.arrow-hit-effect.blocked .hit-flash {
+  background: radial-gradient(circle, rgba(255, 200, 0, 0.8) 0%, transparent 70%);
+  box-shadow: 0 0 20px rgba(255, 200, 0, 0.6);
+}
+
+.arrow-hit-effect.miss .hit-flash {
+  background: radial-gradient(circle, rgba(150, 150, 150, 0.6) 0%, transparent 70%);
+  box-shadow: 0 0 15px rgba(150, 150, 150, 0.4);
+}
+
+.arrow-hit-effect.invalid .hit-flash {
+  background: radial-gradient(circle, rgba(100, 100, 120, 0.5) 0%, transparent 70%);
+  box-shadow: 0 0 10px rgba(100, 100, 120, 0.3);
+}
+
+.arrow-hit-effect.invalid .hit-ripple {
+  border-color: rgba(100, 100, 120, 0.5);
+  box-shadow: 0 0 10px rgba(100, 100, 120, 0.3);
+}
+
+.arrow-hit-effect .hit-ripple {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 215, 0, 0.8);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: ripple-expand-anim 0.7s ease-out forwards;
+  box-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+}
+
+@keyframes hit-effect-appear {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  30% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes hit-flash-expand {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+}
+
+@keyframes ripple-expand-anim {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
 }
 </style>

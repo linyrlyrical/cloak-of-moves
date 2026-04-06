@@ -1,12 +1,20 @@
 <template>
-  <div class="game-container" :style="screenBgStyle">
+<div class="game-container" :style="screenBgStyle" :class="{ 'no-scroll': isDealingAnimating }">
+    <!-- 全局粒子背景层 - 只在主菜单阶段显示 -->
+    <div v-if="['connecting', 'waiting', 'configuring'].includes(gameState.phase)" class="global-particles-bg">
+      <div v-for="(style, i) in particleStyles" :key="i" class="particle" :style="style"></div>
+    </div>
+    
     <!-- 地图名称展示界面 -->
     <Transition name="map-name-transition">
       <div v-if="showMapName" class="map-name-overlay">
         <div class="map-name-content">
           <div class="map-name-icon">🗺️</div>
           <div class="map-name-title">当前地图</div>
-          <div class="map-name-text">{{ currentTheme?.nameCn || '未知地图' }}</div>
+          <div class="map-name-text">
+            <span class="theme-icon">{{ currentTheme?.icon || '🗺️' }}</span>
+            <span class="theme-name" :style="{ background: currentTheme?.nameColor || 'linear-gradient(135deg, #667eea, #48bb78)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }">{{ currentTheme?.name || '未知地图' }}</span>
+          </div>
           <div class="map-name-desc">{{ currentTheme?.description || '' }}</div>
         </div>
       </div>
@@ -22,11 +30,16 @@
       </div>
     </Transition>
 
-    <!-- 选择查看对手手牌弹窗 -->
+    <!-- 选择观看对手手牌弹窗 -->
     <div v-if="chooseOpponentCardVisible" class="choose-card-modal">
       <div class="choose-card-content">
         <h2>⚔️ 对方已确定出牌顺序</h2>
         <p class="choose-tip">你可以选择查看对方的一张手牌：</p>
+        
+        <!-- 倒计时显示 -->
+        <div class="view-card-timer" :class="{ 'timer-warning': viewCardTimer <= 3 }">
+          剩余时间: {{ viewCardTimer }}秒
+        </div>
         
         <div class="choose-options">
           <div 
@@ -155,21 +168,39 @@
       
       <button class="btn rules-btn" @click="showRules = true">📜 查看规则</button>
       
-      <div class="connect-form">
-        <input 
-          v-model="roomCode" 
-          placeholder="输入房间号加入" 
-          class="room-input"
-          @keyup.enter="joinRoom"
-        />
-        <button @click="joinRoom" class="btn">加入房间</button>
+      <!-- 初始选择匹配方式 -->
+      <div v-if="!selectedMatchMode" class="match-mode-buttons">
+        <div class="mode-btn room-mode-btn" @click="selectMatchMode('room')">
+          <div class="mode-icon">🏠</div>
+          <div class="mode-title">房间号匹配</div>
+          <div class="mode-desc">创建或加入房间</div>
+        </div>
+        <div class="mode-btn id-mode-btn" @click="selectMatchMode('id')">
+          <div class="mode-icon">👤</div>
+          <div class="mode-title">ID匹配</div>
+          <div class="mode-desc">通过ID邀请好友</div>
+        </div>
       </div>
       
-      <div class="divider">或者</div>
+      <!-- 房间号匹配界面 -->
+      <div v-else-if="selectedMatchMode === 'room'" class="room-match-form">
+        <div class="connect-form">
+          <input 
+            v-model="roomCode" 
+            placeholder="输入房间号加入" 
+            class="room-input"
+            @keyup.enter="joinRoom"
+          />
+          <button @click="joinRoom" class="btn">加入房间</button>
+        </div>
+        
+        <button @click="createRoom" class="btn btn-primary">创建新房间</button>
+        
+        <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+        
+        <button class="btn back-btn" @click="selectedMatchMode = ''">← 返回</button>
+      </div>
       
-      <button @click="createRoom" class="btn btn-primary">创建新房间</button>
-      
-      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
       <p class="status">{{ connectionStatus }}</p>
     </div>
 
@@ -180,7 +211,15 @@
       <p v-if="copySuccess" class="copy-success">已复制到剪贴板！</p>
       
       <button class="btn rules-btn" @click="showRules = true">📜 查看规则</button>
+      <button class="btn back-btn" @click="cancelWaiting">← 返回</button>
       <p class="waiting-text">等待另一名玩家加入...</p>
+      <div class="loading-spinner"></div>
+    </div>
+    
+    <!-- ID匹配成功，等待配置阶段 -->
+    <div v-else-if="gameState.phase === 'waiting_config'" class="waiting-screen">
+      <h2>🎮 匹配成功！</h2>
+      <p class="waiting-text">正在进入游戏配置...</p>
       <div class="loading-spinner"></div>
     </div>
     
@@ -191,17 +230,63 @@
       
       <!-- 房主可以选择地图大小 -->
       <div v-if="isCreator" class="map-size-selection">
-        <p>请选择地图大小：</p>
-        <div class="map-options">
-          <button 
-            v-for="size in mapSizeOptions" 
-            :key="size"
-            class="btn map-option-btn"
-            :class="{ 'selected': selectedMapSize === size, 'single-row': typeof size === 'string' }"
-            @click="selectMapSize(size)"
-          >
-            {{ typeof size === 'string' ? size.replace('x', '×') : `${size}×${size}` }}
-          </button>
+        <!-- 地图主题选择 - 放在最上面 -->
+        <div class="theme-selection">
+          <p>地图主题：</p>
+          <div class="theme-options">
+            <button 
+              class="btn theme-option-btn"
+              :class="{ 'selected': selectedTheme === 'random' }"
+              @click="selectedTheme = 'random'"
+            >
+              🎲 随机
+            </button>
+            <button 
+              v-for="theme in themeOptions" 
+              :key="theme.id"
+              class="btn theme-option-btn"
+              :class="{ 'selected': selectedTheme === theme.id }"
+              @click="selectedTheme = theme.id"
+            >
+              {{ theme.icon }} {{ theme.name }}
+            </button>
+          </div>
+        </div>
+        
+        <!-- 特色地形选项 -->
+        <div class="shape-selection">
+          <p>特色地形：</p>
+          <div class="shape-options">
+            <button 
+              class="btn shape-option-btn"
+              :class="{ 'selected': selectedMapSize === 'shape' }"
+              @click="selectMapSize('shape')"
+            >
+              <template v-if="selectedTheme === 'random'">
+                🎲 随机特色地形
+              </template>
+              <template v-else>
+                {{ getThemeShapeInfo(selectedTheme).icon }} {{ getThemeShapeInfo(selectedTheme).name }}
+                <span class="shape-cells">({{ getThemeShapeInfo(selectedTheme).cells }}格)</span>
+              </template>
+            </button>
+          </div>
+        </div>
+        
+        <!-- 常规地图大小选项 -->
+        <div class="map-size-wrapper">
+          <p>{{ selectedTheme !== 'random' ? '或选择常规地图：' : '请选择地图大小：' }}</p>
+          <div class="map-options">
+            <button 
+              v-for="size in mapSizeOptions" 
+              :key="size"
+              class="btn map-option-btn"
+              :class="{ 'selected': selectedMapSize === size, 'single-row': typeof size === 'string' }"
+              @click="selectMapSize(size)"
+            >
+              {{ typeof size === 'string' ? size.replace('x', '×') : `${size}×${size}` }}
+            </button>
+          </div>
         </div>
         
         <!-- 迷雾效果开关 -->
@@ -244,6 +329,18 @@
 
     <!-- 游戏主界面 -->
     <div v-else-if="gameState.phase !== 'game_end'" class="game-screen">
+      <!-- 游戏内粒子背景层 -->
+      <div class="game-particles-bg">
+        <div 
+          v-for="(particle, i) in gameParticleStyles" 
+          :key="i" 
+          class="game-particle" 
+          :class="currentTheme?.particleStyle?.shape || 'default'"
+          :style="particle.style"
+          v-html="particle.svg"
+        ></div>
+      </div>
+      
       <!-- 顶部玩家信息 -->
       <div class="players-bar">
         <div class="player-info" :class="{ 'is-opponent': !isPlayer1, 'is-priority': gameState.isPlayer1Priority }">
@@ -270,21 +367,52 @@
       <div class="game-area">
         <!-- 左侧面板 - 玩家1（蓝色） -->
         <div class="player-side-panel left-panel" :class="{ 'is-me': isPlayer1 }">
-          <div class="panel-player-label">P1</div>
-          <div class="panel-character">
-            <AvatarIcon v-if="player1AvatarId" :avatar-id="player1AvatarId" size="large" />
-            <div v-else class="character-avatar blue-avatar">
-              <span class="avatar-icon">⚔️</span>
+          <div class="panel-content-wrapper">
+            <!-- 技能卡牌区域 - 左侧 -->
+            <div class="skill-card-area left-skill" v-if="player1Skill">
+              <div 
+                class="skill-card"
+                :class="{
+                  'active-skill': player1Skill.skillType === 'active',
+                  'passive-skill': player1Skill.skillType === 'passive',
+                  'on-cooldown': player1SkillCooldown > 0,
+                  'can-select': isPlayer1 && player1Skill.skillType === 'active' && player1SkillCooldown === 0 && isSelectingPhase,
+                  'selected': isPlayer1 && skillSelected
+                }"
+                @click="handleSkillClick(0)"
+              >
+                <div class="skill-icon">{{ player1Skill.skillIcon }}</div>
+                <div class="skill-name">{{ player1Skill.skillName }}</div>
+                <div class="skill-type-label">{{ player1Skill.skillType === 'active' ? '主动' : '被动' }}</div>
+                <div v-if="player1Skill.skillType === 'active'" class="skill-cooldown">
+                  {{ player1SkillCooldown > 0 ? `冷却: ${player1SkillCooldown}回合` : '可用' }}
+                </div>
+                <div class="skill-description">{{ player1Skill.description }}</div>
+                <!-- 冷却遮罩 -->
+                <div v-if="player1SkillCooldown > 0" class="cooldown-overlay">
+                  <span class="cooldown-number">{{ player1SkillCooldown }}</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="panel-identity">
-            <span v-if="isPlayer1" class="identity-badge you-badge">你</span>
-            <span v-else class="identity-badge opponent-badge">对手</span>
-          </div>
-          <div class="panel-hp">
-            <span class="hp-label">生命值</span>
-            <div class="hp-hearts">
-              <span v-for="i in 1" :key="i" class="heart" :class="{ 'lost': (gameState.players?.[0]?.hp || 1) < i }">❤️</span>
+            <!-- 玩家信息区域 - 右侧 -->
+            <div class="player-info-area">
+              <div class="panel-player-label">P1</div>
+              <div class="panel-character">
+                <AvatarIcon v-if="player1AvatarId" :avatar-id="player1AvatarId" size="large" />
+                <div v-else class="character-avatar blue-avatar">
+                  <span class="avatar-icon">⚔️</span>
+                </div>
+              </div>
+              <div class="panel-identity">
+                <span v-if="isPlayer1" class="identity-badge you-badge">你</span>
+                <span v-else class="identity-badge opponent-badge">对手</span>
+              </div>
+              <div class="panel-hp">
+                <span class="hp-label">生命值</span>
+                <div class="hp-hearts">
+                  <span v-for="i in (gameState.players?.[0]?.maxHp || 1)" :key="i" class="heart" :class="{ 'lost': (gameState.players?.[0]?.hp || 1) < i }">❤️</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -298,26 +426,58 @@
             :is-player1="isPlayer1"
             :theme="currentTheme"
             :fog-enabled="gameState.fogEnabled"
+            :my-skill="mySkill"
           />
         </div>
         
         <!-- 右侧面板 - 玩家2（红色） -->
         <div class="player-side-panel right-panel" :class="{ 'is-me': !isPlayer1 }">
-          <div class="panel-player-label">P2</div>
-          <div class="panel-character">
-            <AvatarIcon v-if="player2AvatarId" :avatar-id="player2AvatarId" size="large" />
-            <div v-else class="character-avatar red-avatar">
-              <span class="avatar-icon">🛡️</span>
+          <div class="panel-content-wrapper">
+            <!-- 玩家信息区域 - 左侧 -->
+            <div class="player-info-area">
+              <div class="panel-player-label">P2</div>
+              <div class="panel-character">
+                <AvatarIcon v-if="player2AvatarId" :avatar-id="player2AvatarId" size="large" />
+                <div v-else class="character-avatar red-avatar">
+                  <span class="avatar-icon">🛡️</span>
+                </div>
+              </div>
+              <div class="panel-identity">
+                <span v-if="!isPlayer1" class="identity-badge you-badge">你</span>
+                <span v-else class="identity-badge opponent-badge">对手</span>
+              </div>
+              <div class="panel-hp">
+                <span class="hp-label">生命值</span>
+                <div class="hp-hearts">
+                  <span v-for="i in (gameState.players?.[1]?.maxHp || 1)" :key="i" class="heart" :class="{ 'lost': (gameState.players?.[1]?.hp || 1) < i }">❤️</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="panel-identity">
-            <span v-if="!isPlayer1" class="identity-badge you-badge">你</span>
-            <span v-else class="identity-badge opponent-badge">对手</span>
-          </div>
-          <div class="panel-hp">
-            <span class="hp-label">生命值</span>
-            <div class="hp-hearts">
-              <span v-for="i in 1" :key="i" class="heart" :class="{ 'lost': (gameState.players?.[1]?.hp || 1) < i }">❤️</span>
+            <!-- 技能卡牌区域 - 右侧 -->
+            <div class="skill-card-area right-skill" v-if="player2Skill">
+              <div 
+                class="skill-card"
+                :class="{
+                  'active-skill': player2Skill.skillType === 'active',
+                  'passive-skill': player2Skill.skillType === 'passive',
+                  'on-cooldown': player2SkillCooldown > 0,
+                  'can-select': !isPlayer1 && player2Skill.skillType === 'active' && player2SkillCooldown === 0 && isSelectingPhase,
+                  'selected': !isPlayer1 && skillSelected
+                }"
+                @click="handleSkillClick(1)"
+              >
+                <div class="skill-icon">{{ player2Skill.skillIcon }}</div>
+                <div class="skill-name">{{ player2Skill.skillName }}</div>
+                <div class="skill-type-label">{{ player2Skill.skillType === 'active' ? '主动' : '被动' }}</div>
+                <div v-if="player2Skill.skillType === 'active'" class="skill-cooldown">
+                  {{ player2SkillCooldown > 0 ? `冷却: ${player2SkillCooldown}回合` : '可用' }}
+                </div>
+                <div class="skill-description">{{ player2Skill.description }}</div>
+                <!-- 冷却遮罩 -->
+                <div v-if="player2SkillCooldown > 0" class="cooldown-overlay">
+                  <span class="cooldown-number">{{ player2SkillCooldown }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -350,8 +510,28 @@
       <div class="cards-area">
         <!-- 当前卡牌选择 -->
         <div v-if="gameState.phase === 'selecting_priority' || gameState.phase === 'selecting_normal'" class="card-selection">
-          <!-- 显示对方查看的手牌（仅后手玩家可见，显示在顶部居中） -->
-          <div v-if="!isPriorityPlayer && opponentFirstCard" class="opponent-first-card-top">
+          <!-- 女盗贼技能触发：同时显示两张牌 -->
+          <div v-if="!isPriorityPlayer && opponentFirstAndLastCard && opponentFirstAndLastCard.firstCard && opponentFirstAndLastCard.lastCard" class="opponent-cards-top wall-skill-cards">
+            <p class="wall-skill-title">👁️ 隔墙有眼 - 先手玩家手牌：</p>
+            <div class="wall-skill-cards-row">
+              <div class="revealed-card-item">
+                <div class="card-label">第一张</div>
+                <div class="card wall-skill-reveal-card">
+                  <span class="card-icon">{{ opponentFirstAndLastCard.firstCard.icon }}</span>
+                  <span class="card-name">{{ opponentFirstAndLastCard.firstCard.name }}</span>
+                </div>
+              </div>
+              <div class="revealed-card-item">
+                <div class="card-label">最后一张</div>
+                <div class="card wall-skill-reveal-card">
+                  <span class="card-icon">{{ opponentFirstAndLastCard.lastCard.icon }}</span>
+                  <span class="card-name">{{ opponentFirstAndLastCard.lastCard.name }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 普通情况：只显示一张牌 -->
+          <div v-else-if="!isPriorityPlayer && opponentFirstCard" class="opponent-first-card-top">
             <p>先手玩家{{ viewedCardChoice === 'last' ? '最后一张' : '第一张' }}手牌：</p>
             <div class="card first-visible center-card">
               <span class="card-icon">{{ opponentFirstCard.icon }}</span>
@@ -359,43 +539,72 @@
             </div>
           </div>
           
-          <p class="cards-tip">选择3张卡牌作为手牌</p>
+          <p class="cards-tip">选择3张卡牌作为手牌（主动技能可作为一张牌）</p>
           
           <!-- 选牌进度条 -->
           <div class="selection-progress">
             <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: (selectedCards.length / 3 * 100) + '%' }"></div>
+              <div class="progress-fill" :style="{ width: (totalSelectedCount / 3 * 100) + '%' }"></div>
             </div>
             <div class="progress-dots">
-              <span v-for="i in 3" :key="i" class="dot" :class="{ 'filled': selectedCards.length >= i }">{{ i }}</span>
+              <span v-for="i in 3" :key="i" class="dot" :class="{ 'filled': totalSelectedCount >= i }">{{ i }}</span>
             </div>
           </div>
           
-          <div class="available-cards">
+          <div class="available-cards" ref="availableCardsRef">
+            <!-- 卡牌（包括普通牌和技能牌，由服务端统一发送） -->
             <div 
               v-for="(card, index) in currentCards" 
               :key="index"
               class="card"
-              :class="{ 'selected': selectedCards.includes(index) }"
+              :class="{ 
+                'selected': selectedCards.includes(index),
+                'disabled': isDealingAnimating,
+                'placeholder': card === null,
+                'skill-card-in-selection': card && card.isSkillCard
+              }"
               @click="toggleCardSelection(index)"
             >
-              <span class="card-icon">{{ card.icon }}</span>
-              <span class="card-name">{{ card.name }}</span>
+              <template v-if="card !== null">
+                <span class="card-icon">{{ card.icon }}</span>
+                <span class="card-name">{{ card.name }}</span>
+                <span v-if="card && card.isSkillCard" class="skill-badge">技能</span>
+              </template>
             </div>
           </div>
           <button 
             class="btn btn-confirm" 
-            :disabled="selectedCards.length !== 3"
+            :disabled="!canConfirmSelection"
             @click="confirmCardSelection"
           >
-            确认选择 ({{ selectedCards.length }}/3)
+            确认选择 ({{ totalSelectedCount }}/3)
           </button>
         </div>
 
         <!-- 手牌顺序调整 -->
         <div v-else-if="gameState.phase === 'ordering_priority' || gameState.phase === 'ordering_normal'" class="card-ordering">
-          <!-- 显示对方查看的手牌（仅非优先玩家可见，显示在顶部居中） -->
-          <div v-if="!isPriorityPlayer && opponentFirstCard" class="opponent-first-card-top">
+          <!-- 女盗贼技能触发：同时显示两张牌 -->
+          <div v-if="!isPriorityPlayer && opponentFirstAndLastCard && opponentFirstAndLastCard.firstCard && opponentFirstAndLastCard.lastCard" class="opponent-cards-top wall-skill-cards">
+            <p class="wall-skill-title">👁️ 隔墙有眼 - 先手玩家手牌：</p>
+            <div class="wall-skill-cards-row">
+              <div class="revealed-card-item">
+                <div class="card-label">第一张</div>
+                <div class="card wall-skill-reveal-card">
+                  <span class="card-icon">{{ opponentFirstAndLastCard.firstCard.icon }}</span>
+                  <span class="card-name">{{ opponentFirstAndLastCard.firstCard.name }}</span>
+                </div>
+              </div>
+              <div class="revealed-card-item">
+                <div class="card-label">最后一张</div>
+                <div class="card wall-skill-reveal-card">
+                  <span class="card-icon">{{ opponentFirstAndLastCard.lastCard.icon }}</span>
+                  <span class="card-name">{{ opponentFirstAndLastCard.lastCard.name }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 普通情况：只显示一张牌 -->
+          <div v-else-if="!isPriorityPlayer && opponentFirstCard" class="opponent-first-card-top">
             <p>先手玩家{{ viewedCardChoice === 'last' ? '最后一张' : '第一张' }}手牌：</p>
             <div class="card first-visible center-card">
               <span class="card-icon">{{ opponentFirstCard.icon }}</span>
@@ -510,6 +719,20 @@
           <span class="card-name">{{ flyingCard.card.name }}</span>
         </div>
       </div>
+      
+      <!-- 发牌动画层 -->
+      <div v-if="showDealingAnimation" class="dealing-animation-overlay">
+        <!-- 飞出的牌 -->
+        <div 
+          v-for="(item, idx) in dealingCards" 
+          :key="idx"
+          class="dealing-card"
+          :style="{ '--delay': `${idx * 0.12}s`, '--target-x': `${item.targetX}px`, '--target-y': `${item.targetY}px` }"
+        >
+          <span class="card-icon">{{ item.card.icon }}</span>
+          <span class="card-name">{{ item.card.name }}</span>
+        </div>
+      </div>
     </div>
 
     <!-- 游戏结束界面 -->
@@ -550,17 +773,67 @@
         </div>
       </template>
     </div>
+
+    <!-- ID匹配大厅 -->
+    <IdMatchLobby 
+      v-if="showIdMatchLobby"
+      ref="idMatchLobbyRef"
+      :socket="socket"
+      :my-avatar-id="myAvatarId"
+      @match-found="onIdMatchFound"
+      @leave="onLeaveIdLobby"
+      @invitation-received="onInvitationReceived"
+    />
+    
+    <!-- 邀请弹窗 -->
+    <InvitationDialog 
+      :visible="showInvitationDialog"
+      :invitation="currentInvitation"
+      @accept="onAcceptInvitation"
+      @reject="onRejectInvitation"
+    />
+    
+    <!-- 女盗贼技能：隔墙有眼 - 查看对手手牌弹窗 -->
+    <div v-if="showWallSkillReveal && wallSkillRevealedCards" class="wall-skill-modal">
+      <div class="wall-skill-content">
+        <h2>👁️ 隔墙有眼</h2>
+        <p class="wall-skill-tip">你查看了对手的手牌（共 {{ wallSkillRevealedCards.totalCards }} 张）：</p>
+        
+        <div class="revealed-cards">
+          <div class="revealed-card">
+            <div class="card-label">第一张</div>
+            <div class="card wall-skill-card">
+              <span class="card-icon">{{ wallSkillRevealedCards.firstCard?.icon }}</span>
+              <span class="card-name">{{ wallSkillRevealedCards.firstCard?.name }}</span>
+            </div>
+          </div>
+          
+          <div class="revealed-card">
+            <div class="card-label">最后一张</div>
+            <div class="card wall-skill-card">
+              <span class="card-icon">{{ wallSkillRevealedCards.lastCard?.icon }}</span>
+              <span class="card-name">{{ wallSkillRevealedCards.lastCard?.name }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <button class="btn btn-primary wall-skill-close-btn" @click="closeWallSkillReveal">我已记住</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { io } from 'socket.io-client'
 import GameBoard from './components/GameBoard.vue'
 import AvatarIcon from './components/AvatarIcon.vue'
 import AvatarSelector from './components/AvatarSelector.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
-import { GAME_CONFIG } from '../../shared/constants.js'
+import MatchModeSelect from './components/MatchModeSelect.vue'
+import IdMatchLobby from './components/IdMatchLobby.vue'
+import InvitationDialog from './components/InvitationDialog.vue'
+import { GAME_CONFIG, MAP_THEMES, THEME_LIST, THEME_SHAPE_LAYOUTS, countThemeShapeCells, CHARACTER_SKILLS } from '@shared/constants.js'
 import { getServerUrl } from './config.js'
 import audioManager from './utils/audioManager'
 
@@ -570,7 +843,10 @@ export default {
     GameBoard,
     AvatarIcon,
     AvatarSelector,
-    SettingsPanel
+    SettingsPanel,
+    MatchModeSelect,
+    IdMatchLobby,
+    InvitationDialog
   },
   setup() {
     // Socket连接
@@ -603,19 +879,51 @@ export default {
     const selectedCards = ref([])
     const myHandCards = ref([])
     const opponentFirstCard = ref(null)
+    
+    // 技能相关状态
+    const player1Skill = ref(null)
+    const player2Skill = ref(null)
+    
+    // 获取当前玩家的技能（computed）
+    const mySkill = computed(() => {
+      return isPlayer1.value ? player1Skill.value : player2Skill.value
+    })
+    
+    const player1SkillCooldown = ref(0)
+    const player2SkillCooldown = ref(0)
+    const skillSelected = ref(false)
+    
     const currentPlayIndex = ref(0)
     // 后手玩家选择查看先手手牌相关
     const chooseOpponentCardVisible = ref(false)
     const opponentFirstAndLastCard = ref({ firstCard: null, lastCard: null })
+    const chooseOpponentCardData = ref({ firstCard: null, lastCard: null }) // 用于弹窗选择的数据
     const viewedOpponentCard = ref(null)
     const viewedCardChoice = ref(null) // 'first' or 'last'
+    
+    // 女盗贼技能：隔墙有眼 - 查看对手手牌
+    const wallSkillRevealedCards = ref(null) // { firstCard, lastCard, totalCards }
+    const showWallSkillReveal = ref(false) // 是否显示查看手牌弹窗
+    const lastViewedCardChoice = ref('first')  // 记住玩家上次的选择，默认'first'
     const isPriorityReceived = ref(false)  // 是否收到优先玩家的牌
+    const isFirstRoundForChoice = ref(false)  // 是否是第一回合（用于选择观看手牌倒计时）
+    const viewCardTimer = ref(10)  // 选择观看手牌倒计时
     const orderLocked = ref(false)  // 顺序是否已锁定
     
     // 地图配置相关
     const mapSizeOptions = ref(GAME_CONFIG.MAP_SIZE_OPTIONS)
     const selectedMapSize = ref(null)
     const selectedFogEnabled = ref(true)  // 默认选择"有"迷雾
+    const selectedTheme = ref('random')  // 默认选择"随机"主题
+    
+    // 主题选项（用于UI显示）
+    const themeOptions = computed(() => {
+      return THEME_LIST.map(id => ({
+        id: id,
+        name: MAP_THEMES[id].name,
+        icon: MAP_THEMES[id].icon
+      }))
+    })
     const creatorId = ref('')
     const isCreator = computed(() => {
       const result = socketId.value === creatorId.value
@@ -628,6 +936,12 @@ export default {
     
     // 飞牌动画状态（纯视觉效果）
     const flyingCard = ref(null)
+    
+    // 发牌动画状态
+    const dealingCards = ref([])  // 正在发的牌
+    const showDealingAnimation = ref(false)  // 是否显示发牌动画
+    const isDealingAnimating = ref(false)  // 发牌动画进行中（用于禁用卡牌点击）
+    const availableCardsRef = ref(null)  // 可选卡牌区域DOM引用
     
     // 计时器
     const selectTimer = ref(30)
@@ -652,6 +966,18 @@ export default {
     const showRules = ref(false)
     const dontShowRules = ref(localStorage.getItem('dontShowRules') === 'true')
     
+    // 监听 dontShowRules 变化，即时保存到 localStorage
+    watch(dontShowRules, (newVal) => {
+      localStorage.setItem('dontShowRules', String(newVal))
+    })
+    
+    // 监听主题变化，切换到随机时清空地图大小选择
+    watch(selectedTheme, (newTheme) => {
+      if (newTheme === 'random') {
+        selectedMapSize.value = null
+      }
+    })
+    
     // 再来一局请求状态
     const rematchStatus = ref(null) // null | 'sent' | 'received' | 'rejected'
     const opponentDisconnected = ref(false)
@@ -670,11 +996,78 @@ export default {
     // 角色形象相关
     const myAvatarId = ref(localStorage.getItem('myAvatarId') || 'male_knight')
     const showAvatarSelector = ref(false)
+    
+    // 技能相关状态
     const player1AvatarId = ref(null)
     const player2AvatarId = ref(null)
     
     // 设置面板相关
     const showSettings = ref(false)
+    
+    // ==================== ID匹配相关状态 ====================
+    const selectedMatchMode = ref('') // '' | 'room' | 'id'
+    const showIdMatchLobby = ref(false)
+    const showInvitationDialog = ref(false)
+    const currentInvitation = ref(null)
+    const idMatchLobbyRef = ref(null)
+    
+    // 选择匹配模式
+    const selectMatchMode = (mode) => {
+      selectedMatchMode.value = mode
+      if (mode === 'id') {
+        showIdMatchLobby.value = true
+      }
+    }
+    
+    // ID匹配成功
+    const onIdMatchFound = (data) => {
+      console.log('[客户端] ID匹配成功:', data)
+      showIdMatchLobby.value = false
+      selectedMatchMode.value = ''  // 重置匹配模式
+      
+      // 设置房间信息
+      if (data?.roomCode) {
+        currentRoom.value = data.roomCode
+        roomCode.value = data.roomCode
+      }
+      
+      // 设置玩家身份（服务端会告知是玩家1还是玩家2）
+      if (data?.isPlayer1 !== undefined) {
+        isPlayer1.value = data.isPlayer1
+        console.log('[客户端] 设置玩家身份: isPlayer1 =', data.isPlayer1)
+      }
+      
+      // 进入等待配置阶段，等待服务器发送 enter_configuring 事件
+      gameState.value.phase = 'waiting_config'
+    }
+    
+    // 离开ID匹配大厅
+    const onLeaveIdLobby = () => {
+      showIdMatchLobby.value = false
+      selectedMatchMode.value = ''  // 重置匹配模式，返回主界面
+    }
+    
+    // 收到对战邀请
+    const onInvitationReceived = (invitation) => {
+      currentInvitation.value = invitation
+      showInvitationDialog.value = true
+    }
+    
+    // 接受邀请
+    const onAcceptInvitation = (invitationId) => {
+      showInvitationDialog.value = false
+      if (idMatchLobbyRef.value) {
+        idMatchLobbyRef.value.acceptInvitation(invitationId)
+      }
+    }
+    
+    // 拒绝邀请
+    const onRejectInvitation = (invitationId) => {
+      showInvitationDialog.value = false
+      if (idMatchLobbyRef.value) {
+        idMatchLobbyRef.value.rejectInvitation(invitationId)
+      }
+    }
     
     // 打开设置面板
     const openSettings = () => {
@@ -684,6 +1077,368 @@ export default {
     // 关闭设置面板
     const closeSettings = () => {
       showSettings.value = false
+    }
+    
+    // 粒子背景样式数组（初始化时生成，避免重新渲染时变化）
+    const particleStyles = ref([])
+    
+    // 游戏内粒子样式数组
+    const gameParticleStyles = ref([])
+    
+    // 生成固定的粒子样式（主界面气泡）
+    const generateParticleStyles = () => {
+      const styles = []
+      for (let i = 0; i < 20; i++) {
+        const size = Math.random() * 10 + 5 // 5-15px
+        const left = Math.random() * 100 // 0-100%
+        const delay = Math.random() * -35 // 使用负值，让粒子初始位置随机分布
+        const duration = Math.random() * 20 + 15 // 15-35s
+        const opacity = Math.random() * 0.4 + 0.1 // 0.1-0.5
+        styles.push({
+          width: `${size}px`,
+          height: `${size}px`,
+          left: `${left}%`,
+          animationDelay: `${delay}s`,
+          animationDuration: `${duration}s`,
+          opacity: opacity
+        })
+      }
+      particleStyles.value = styles
+    }
+    
+    // 从颜色生成渐变色（浅色 -> 主色 -> 深色）
+    const generateGradientColors = (baseColor) => {
+      // 解析颜色
+      let r, g, b
+      if (baseColor.startsWith('#')) {
+        const hex = baseColor.slice(1)
+        r = parseInt(hex.substr(0, 2), 16)
+        g = parseInt(hex.substr(2, 2), 16)
+        b = parseInt(hex.substr(4, 2), 16)
+      } else {
+        // 默认返回原色
+        return { light: baseColor, main: baseColor, dark: baseColor }
+      }
+      
+      // 生成浅色（提亮）
+      const lightR = Math.min(255, r + 60)
+      const lightG = Math.min(255, g + 60)
+      const lightB = Math.min(255, b + 60)
+      const light = `#${lightR.toString(16).padStart(2,'0')}${lightG.toString(16).padStart(2,'0')}${lightB.toString(16).padStart(2,'0')}`
+      
+      // 主色
+      const main = baseColor
+      
+      // 生成深色（加深）
+      const darkR = Math.max(0, r - 50)
+      const darkG = Math.max(0, g - 50)
+      const darkB = Math.max(0, b - 50)
+      const dark = `#${darkR.toString(16).padStart(2,'0')}${darkG.toString(16).padStart(2,'0')}${darkB.toString(16).padStart(2,'0')}`
+      
+      return { light, main, dark }
+    }
+
+    // 生成SVG粒子图形 - 使用传入的颜色生成动态渐变
+    const generateParticleSVG = (shape, color, size) => {
+      // 生成唯一ID避免SVG渐变ID冲突
+      const uniqueId = Math.random().toString(36).substr(2, 9)
+      const grad = generateGradientColors(color)
+      
+      switch (shape) {
+        case 'leaf':
+          // 森林 - 精美树叶
+          const leafShapes = [
+            // 椭圆叶 - 带叶脉
+            `<svg width="${size}" height="${size * 1.25}" viewBox="0 0 40 50">
+              <defs>
+                <linearGradient id="leaf1_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="20" cy="25" rx="15" ry="22" fill="url(#leaf1_${uniqueId})" transform="rotate(-20, 20, 25)"/>
+              <path d="M20 5 Q22 25 20 45" stroke="${grad.dark}" stroke-width="1.5" fill="none" opacity="0.6"/>
+              <path d="M20 15 Q12 20 8 25" stroke="${grad.dark}" stroke-width="0.8" fill="none" opacity="0.4"/>
+              <path d="M20 25 Q28 30 32 35" stroke="${grad.dark}" stroke-width="0.8" fill="none" opacity="0.4"/>
+            </svg>`,
+            // 枫叶
+            `<svg width="${size}" height="${size}" viewBox="0 0 45 45">
+              <defs>
+                <linearGradient id="leaf2_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.main}"/>
+                </linearGradient>
+              </defs>
+              <path d="M22 2 L26 15 L40 12 L30 22 L42 30 L28 28 L30 42 L22 32 L14 42 L16 28 L2 30 L14 22 L4 12 L18 15 Z" fill="url(#leaf2_${uniqueId})"/>
+            </svg>`,
+            // 尖叶
+            `<svg width="${size * 0.75}" height="${size * 1.1}" viewBox="0 0 30 45">
+              <defs>
+                <linearGradient id="leaf3_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </linearGradient>
+              </defs>
+              <path d="M15 2 Q28 20 15 43 Q2 20 15 2" fill="url(#leaf3_${uniqueId})"/>
+              <path d="M15 5 L15 40" stroke="${grad.dark}" stroke-width="1" fill="none" opacity="0.5"/>
+            </svg>`,
+            // 圆叶
+            `<svg width="${size}" height="${size}" viewBox="0 0 35 35">
+              <defs>
+                <linearGradient id="leaf4_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </linearGradient>
+              </defs>
+              <circle cx="17.5" cy="17.5" r="15" fill="url(#leaf4_${uniqueId})"/>
+              <path d="M17.5 5 L17.5 30" stroke="${grad.dark}" stroke-width="1" fill="none" opacity="0.4"/>
+              <path d="M8 12 Q17.5 17.5 27 12" stroke="${grad.dark}" stroke-width="0.6" fill="none" opacity="0.3"/>
+            </svg>`
+          ]
+          return leafShapes[Math.floor(Math.random() * leafShapes.length)]
+        
+        case 'sand':
+          // 沙漠 - 精美沙粒
+          const sandShapes = [
+            // 不规则沙粒
+            `<svg width="${size}" height="${size}" viewBox="0 0 18 18">
+              <defs>
+                <linearGradient id="sand1_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </linearGradient>
+              </defs>
+              <polygon points="5,2 15,4 16,12 11,16 3,14 2,7" fill="url(#sand1_${uniqueId})"/>
+            </svg>`,
+            // 圆形沙粒
+            `<svg width="${size * 0.9}" height="${size * 0.9}" viewBox="0 0 14 14">
+              <defs>
+                <radialGradient id="sand2_${uniqueId}" cx="30%" cy="30%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.main}"/>
+                </radialGradient>
+              </defs>
+              <circle cx="7" cy="7" r="6" fill="url(#sand2_${uniqueId})"/>
+            </svg>`,
+            // 星形沙粒
+            `<svg width="${size}" height="${size}" viewBox="0 0 16 16">
+              <defs>
+                <linearGradient id="sand3_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </linearGradient>
+              </defs>
+              <polygon points="8,1 10,5 15,5 11,8 13,14 8,10 3,14 5,8 1,5 6,5" fill="url(#sand3_${uniqueId})"/>
+            </svg>`,
+            // 椭圆沙粒
+            `<svg width="${size * 1.2}" height="${size * 0.7}" viewBox="0 0 20 12">
+              <defs>
+                <linearGradient id="sand4_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="10" cy="6" rx="9" ry="5" fill="url(#sand4_${uniqueId})"/>
+            </svg>`
+          ]
+          return sandShapes[Math.floor(Math.random() * sandShapes.length)]
+        
+        case 'snow':
+          // 冰原 - 精美雪花
+          const snowShapes = [
+            // 六角雪花
+            `<svg width="${size}" height="${size}" viewBox="0 0 40 40">
+              <defs>
+                <linearGradient id="snow1_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.main}"/>
+                </linearGradient>
+              </defs>
+              <g fill="url(#snow1_${uniqueId})">
+                <polygon points="20,2 22,18 38,20 22,22 20,38 18,22 2,20 18,18"/>
+                <polygon points="20,8 28,12 32,20 28,28 20,32 12,28 8,20 12,12" opacity="0.5"/>
+              </g>
+            </svg>`,
+            // 圆形雪
+            `<svg width="${size * 0.9}" height="${size * 0.9}" viewBox="0 0 35 35">
+              <defs>
+                <linearGradient id="snow2_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.main}"/>
+                </linearGradient>
+              </defs>
+              <circle cx="17.5" cy="17.5" r="16" fill="url(#snow2_${uniqueId})" opacity="0.8"/>
+              <circle cx="17.5" cy="17.5" r="10" fill="white" opacity="0.6"/>
+              <circle cx="17.5" cy="17.5" r="4" fill="white"/>
+            </svg>`,
+            // 星形雪
+            `<svg width="${size}" height="${size}" viewBox="0 0 40 40">
+              <defs>
+                <linearGradient id="snow3_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.main}"/>
+                </linearGradient>
+              </defs>
+              <g stroke="url(#snow3_${uniqueId})" stroke-width="2" fill="none">
+                <line x1="20" y1="5" x2="20" y2="35"/>
+                <line x1="5" y1="20" x2="35" y2="20"/>
+                <line x1="8" y1="8" x2="32" y2="32"/>
+                <line x1="32" y1="8" x2="8" y2="32"/>
+              </g>
+              <circle cx="20" cy="20" r="4" fill="white"/>
+            </svg>`,
+            // 菱形雪
+            `<svg width="${size * 0.75}" height="${size}" viewBox="0 0 30 30">
+              <defs>
+                <radialGradient id="snow4_${uniqueId}" cx="50%" cy="50%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="70%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </radialGradient>
+              </defs>
+              <polygon points="15,1 17,11 27,13 17,15 15,29 13,15 3,13 13,11" fill="url(#snow4_${uniqueId})"/>
+            </svg>`
+          ]
+          return snowShapes[Math.floor(Math.random() * snowShapes.length)]
+        
+        case 'ember':
+          // 火山 - 精美火星
+          const emberShapes = [
+            // 圆形火星
+            `<svg width="${size}" height="${size}" viewBox="0 0 20 20">
+              <defs>
+                <radialGradient id="ember1_${uniqueId}" cx="30%" cy="30%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="50%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </radialGradient>
+              </defs>
+              <circle cx="10" cy="10" r="9" fill="url(#ember1_${uniqueId})"/>
+            </svg>`,
+            // 火焰
+            `<svg width="${size * 0.6}" height="${size}" viewBox="0 0 15 25">
+              <defs>
+                <linearGradient id="ember2_${uniqueId}" x1="0%" y1="100%" x2="0%" y2="0%">
+                  <stop offset="0%" style="stop-color:${grad.dark}"/>
+                  <stop offset="50%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.light}"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="7.5" cy="12.5" rx="6" ry="12" fill="url(#ember2_${uniqueId})"/>
+            </svg>`,
+            // 星形火星
+            `<svg width="${size * 0.9}" height="${size * 0.9}" viewBox="0 0 18 18">
+              <defs>
+                <radialGradient id="ember3_${uniqueId}" cx="50%" cy="50%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.main}"/>
+                </radialGradient>
+              </defs>
+              <polygon points="9,1 12,6 17,6 13,10 15,16 9,12 3,16 5,10 1,6 6,6" fill="url(#ember3_${uniqueId})"/>
+            </svg>`,
+            // 余烬
+            `<svg width="${size * 1.3}" height="${size * 0.5}" viewBox="0 0 25 10">
+              <defs>
+                <linearGradient id="ember4_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" style="stop-color:${grad.main}" stop-opacity="0"/>
+                  <stop offset="50%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.light}" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="12.5" cy="5" rx="12" ry="4" fill="url(#ember4_${uniqueId})"/>
+            </svg>`
+          ]
+          return emberShapes[Math.floor(Math.random() * emberShapes.length)]
+        
+        case 'dust':
+          // 古城 - 精美灰尘
+          const dustShapes = [
+            // 圆形灰尘
+            `<svg width="${size}" height="${size}" viewBox="0 0 14 14">
+              <defs>
+                <radialGradient id="dust1_${uniqueId}" cx="30%" cy="30%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </radialGradient>
+              </defs>
+              <circle cx="7" cy="7" r="6" fill="url(#dust1_${uniqueId})"/>
+            </svg>`,
+            // 不规则灰尘
+            `<svg width="${size}" height="${size}" viewBox="0 0 16 16">
+              <defs>
+                <linearGradient id="dust2_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </linearGradient>
+              </defs>
+              <polygon points="4,2 12,3 15,9 11,14 5,13 2,7" fill="url(#dust2_${uniqueId})"/>
+            </svg>`,
+            // 椭圆灰尘
+            `<svg width="${size * 1.2}" height="${size * 0.7}" viewBox="0 0 18 10">
+              <defs>
+                <linearGradient id="dust3_${uniqueId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:${grad.main}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="9" cy="5" rx="8" ry="4" fill="url(#dust3_${uniqueId})"/>
+            </svg>`,
+            // 方块灰尘
+            `<svg width="${size * 0.85}" height="${size * 0.85}" viewBox="0 0 12 12">
+              <defs>
+                <radialGradient id="dust4_${uniqueId}" cx="50%" cy="50%">
+                  <stop offset="0%" style="stop-color:${grad.light}"/>
+                  <stop offset="100%" style="stop-color:${grad.dark}"/>
+                </radialGradient>
+              </defs>
+              <rect x="1" y="1" width="10" height="10" rx="2" fill="url(#dust4_${uniqueId})" transform="rotate(15, 6, 6)"/>
+            </svg>`
+          ]
+          return dustShapes[Math.floor(Math.random() * dustShapes.length)]
+        
+        default:
+          return `<svg width="${size}" height="${size}" viewBox="0 0 10 10">
+            <circle cx="5" cy="5" r="4" fill="${color}"/>
+          </svg>`
+      }
+    }
+    
+    // 生成游戏内粒子样式（根据主题）
+    const generateGameParticleStyles = () => {
+      if (!currentTheme.value?.particleStyle) {
+        gameParticleStyles.value = []
+        return
+      }
+      
+      const style = currentTheme.value.particleStyle
+      const particles = []
+      
+      for (let i = 0; i < style.count; i++) {
+        const size = Math.random() * (style.sizeMax - style.sizeMin) + style.sizeMin
+        const left = Math.random() * 100
+        const duration = Math.random() * (style.speedMax - style.speedMin) + style.speedMin
+        const delay = Math.random() * -duration  // 延迟范围限制在 -duration 内，确保粒子始终可见
+        const opacity = Math.random() * (style.opacityMax - style.opacityMin) + style.opacityMin
+        const color = style.colors[Math.floor(Math.random() * style.colors.length)]
+        const swing = Math.random() * 100 - 50 // 左右摆动幅度
+        
+        // 生成SVG图形
+        const svg = generateParticleSVG(style.shape, color, size)
+        
+        particles.push({
+          svg: svg,
+          style: {
+            left: `${left}%`,
+            animationDelay: `${delay}s`,
+            animationDuration: `${duration}s`,
+            '--swing': `${swing}px`,
+            '--particle-color': color,
+            '--particle-opacity': opacity
+          }
+        })
+      }
+      
+      gameParticleStyles.value = particles
     }
     
     // 全屏背景样式 - 根据地图主题变化
@@ -702,6 +1457,8 @@ export default {
     })
     
     const closeRules = () => {
+      // 播放点击音效
+      audioManager.playClick()
       if (dontShowRules.value) {
         localStorage.setItem('dontShowRules', 'true')
       }
@@ -733,6 +1490,44 @@ export default {
       const priorityIndex = gameState.value.isPlayer1Priority ? 0 : 1
       const turnInPair = gameState.value.turnIndex % 2
       return playerIndex === (turnInPair === 0 ? priorityIndex : 1 - priorityIndex)
+    })
+    
+    // 是否处于选牌阶段
+    const isSelectingPhase = computed(() => {
+      return gameState.value.phase === 'selecting_priority' || 
+             gameState.value.phase === 'selecting_normal' ||
+             gameState.value.phase === 'ordering_priority' ||
+             gameState.value.phase === 'ordering_normal'
+    })
+    
+    // 获取当前玩家的主动技能
+    const myActiveSkill = computed(() => {
+      if (isPlayer1.value) {
+        return player1Skill.value?.skillType === 'active' ? player1Skill.value : null
+      } else {
+        return player2Skill.value?.skillType === 'active' ? player2Skill.value : null
+      }
+    })
+    
+    // 获取当前玩家的技能冷却
+    const mySkillCooldown = computed(() => {
+      return isPlayer1.value ? player1SkillCooldown.value : player2SkillCooldown.value
+    })
+    
+    // 计算当前选中的牌数（技能牌索引已在selectedCards中，无需额外计数）
+    const totalSelectedCount = computed(() => {
+      return selectedCards.value.length
+    })
+    
+    // 检查是否可以确认选牌（技能牌和普通牌统一计算，选满3张即可）
+    const canConfirmSelection = computed(() => {
+      return selectedCards.value.length === 3
+    })
+    
+    // 检查是否可以选择卡牌（在选牌阶段）
+    const canSelectSkillInSelection = computed(() => {
+      // 统一逻辑：没选满3张就可以选
+      return selectedCards.value.length < 3
     })
     
 const currentTurn = computed(() => {
@@ -884,6 +1679,11 @@ const currentTurn = computed(() => {
         mapSizeOptions.value = data.mapSizeOptions
         creatorId.value = data.creatorId
         selectedMapSize.value = null
+        // 重置技能相关状态（确保再来一局时技能CD刷新）
+        player1SkillCooldown.value = 0
+        player2SkillCooldown.value = 0
+        skillSelected.value = false
+        console.log('[客户端] 已重置技能CD状态')
       })
       
       // 地图配置完成
@@ -903,17 +1703,40 @@ const currentTurn = computed(() => {
           ...data, 
           phase: data.phase || 'dealing' 
         }
-        // 保存玩家形象ID
-        if (data.players && data.players[0]) {
-          player1AvatarId.value = data.players[0].avatarId
+        // 保存玩家形象ID和技能信息
+        if (data.players) {
+          if (data.players[0]) {
+            player1AvatarId.value = data.players[0].avatarId
+            // 保存玩家1技能信息
+            if (data.players[0].skill) {
+              player1Skill.value = data.players[0].skill
+              player1SkillCooldown.value = data.players[0].skillCooldown || 0
+            }
+          }
+          if (data.players[1]) {
+            player2AvatarId.value = data.players[1].avatarId
+            // 保存玩家2技能信息
+            if (data.players[1].skill) {
+              player2Skill.value = data.players[1].skill
+              player2SkillCooldown.value = data.players[1].skillCooldown || 0
+            }
+          }
         }
-        if (data.players && data.players[1]) {
-          player2AvatarId.value = data.players[1].avatarId
+        // 兼容旧格式：直接从data读取技能信息
+        if (data.player1Skill) {
+          player1Skill.value = data.player1Skill
+          player1SkillCooldown.value = data.player1SkillCooldown || 0
+        }
+        if (data.player2Skill) {
+          player2Skill.value = data.player2Skill
+          player2SkillCooldown.value = data.player2SkillCooldown || 0
         }
         // 保存主题数据并显示地图名称
         if (data.theme) {
           currentTheme.value = data.theme
           console.log('[客户端] 当前地图主题:', data.theme.nameCn)
+          // 生成游戏内粒子样式
+          generateGameParticleStyles()
           // 显示地图名称界面
           showMapName.value = true
           setTimeout(() => {
@@ -924,54 +1747,182 @@ const currentTurn = computed(() => {
         audioManager.playBgmusic()
       })
       
-      // 处理发牌事件
+      // 处理回合开始事件（双方同时显示"进入第X回合"提示）
+      socket.value.on('round_start', (data) => {
+        console.log('[客户端] 收到round_start:', data)
+        
+        nextRound.value = data.round
+        showRoundTransition.value = true
+        audioManager.playSwordCrash()
+        
+        // 1.5秒后隐藏提示
+        setTimeout(() => {
+          showRoundTransition.value = false
+        }, 1500)
+      })
+      
+      // 处理发牌事件（只负责发牌动画）
       socket.value.on('deal_cards', (data) => {
         console.log('[客户端] 收到deal_cards:', data)
-        currentCards.value = data.cards
-        selectedCards.value = []
-        opponentFirstCard.value = null  // 初始为null，后手会在先手选完后收到
-        isPriorityReceived.value = data.isPriority
+        startDealingAnimation(data)
+      })
+      
+      // 计算发牌动画中每张牌的目标位置（fallback方案）
+      const calculateCardPositions = (cardCount) => {
+        const cardWidth = 100  // 卡牌宽度
+        const gap = 16         // 间距 1rem = 16px
         
-        // 播放发牌音效
-        audioManager.playCardslide()
+        // 总宽度
+        const totalWidth = cardCount * cardWidth + (cardCount - 1) * gap
+        const startX = (window.innerWidth - totalWidth) / 2
         
-        // 第一回合显示提示（在地图名称显示完成后）
-        if (gameState.value.currentRound === 1) {
-          nextRound.value = 1
-          // 如果地图名称正在显示，等待它完成后再显示回合提示
-          if (showMapName.value) {
-            // 延迟显示，等待地图名称显示完成（2.5秒）+ 一点缓冲
-            setTimeout(() => {
-              showRoundTransition.value = true
-              // 播放剑碰撞音效
-              audioManager.playSwordCrash()
-              setTimeout(() => {
-                showRoundTransition.value = false
-              }, 1500)
-            }, 2800)  // 地图名称显示2.5秒 + 0.3秒缓冲
-          } else {
-            // 地图名称已经显示完毕，直接显示回合提示
-            showRoundTransition.value = true
-            // 播放剑碰撞音效
-            audioManager.playSwordCrash()
-            setTimeout(() => {
-              showRoundTransition.value = false
-            }, 1500)
-          }
+        // 卡牌区域在屏幕中的Y位置（选牌区在下方，约65%位置）
+        // 需要增加偏移量来补偿：提示文字(约24px) + 进度条(约48px) + 间距(约24px) = 96px
+        const offsetY = 96  // 提示文字 + 进度条 + 间距的高度
+        const targetY = window.innerHeight * 0.65 + offsetY
+        
+        return Array.from({ length: cardCount }, (_, i) => ({
+          x: startX + i * (cardWidth + gap) + cardWidth / 2 - window.innerWidth / 2,
+          y: targetY - window.innerHeight / 2
+        }))
+      }
+      
+      // 获取实际卡牌位置（通过DOM）
+      const getActualCardPositions = (cardCount) => {
+        if (!availableCardsRef.value) {
+          return calculateCardPositions(cardCount)
         }
         
-        // 确定当前阶段
+        const cards = availableCardsRef.value.querySelectorAll('.card')
+        const positions = []
+        const centerX = window.innerWidth / 2
+        const centerY = window.innerHeight / 2
+        
+        cards.forEach((cardEl) => {
+          const rect = cardEl.getBoundingClientRect()
+          positions.push({
+            x: rect.left + rect.width / 2 - centerX,
+            y: rect.top + rect.height / 2 - centerY
+          })
+        })
+        
+        return positions
+      }
+      
+      // 发牌动画函数 - 预发空牌方案：通过DOM获取精确位置
+      const startDealingAnimation = (data) => {
+        selectedCards.value = []
+        skillSelected.value = false  // 重置技能选择状态
+        isDealingAnimating.value = true
+        
+        // 接收并保存技能信息
+        if (data.player1Skill) {
+          player1Skill.value = data.player1Skill
+          player1SkillCooldown.value = data.player1SkillCooldown || 0
+        }
+        if (data.player2Skill) {
+          player2Skill.value = data.player2Skill
+          player2SkillCooldown.value = data.player2SkillCooldown || 0
+        }
+        
+        // 1. 立即切换到选牌阶段
         if (data.isPriority) {
           gameState.value.phase = 'selecting_priority'
           startSelectTimer()
         } else {
-          // 后手玩家收到牌后进入等待阶段，不开始计时
-          gameState.value.phase = 'waiting_selecting'
-          // 不启动计时器，等待先手选完后会收到opponent_first_card_ready
+          gameState.value.phase = 'selecting_normal'
+          startSelectTimer()
         }
-      })
-      
-      // 先手玩家确认顺序完成，通知后手可以开始选牌了
+        
+        // 2. 预发占位牌（使用空对象，渲染真实内容但不可见）
+        currentCards.value = data.cards.map(() => ({ icon: '', name: '' }))
+        
+        // 3. 等待DOM渲染后获取占位牌位置（增加延迟确保渲染完成）
+        setTimeout(() => {
+          // 获取占位牌DOM元素的实际位置
+          const cardElements = availableCardsRef.value?.querySelectorAll('.card')
+          const cardPositions = []
+          
+          console.log('[客户端] availableCardsRef:', availableCardsRef.value)
+          console.log('[客户端] cardElements数量:', cardElements?.length)
+          
+          if (cardElements && cardElements.length > 0) {
+            const centerX = window.innerWidth / 2
+            const centerY = window.innerHeight / 2
+            cardElements.forEach((el, idx) => {
+              const rect = el.getBoundingClientRect()
+              console.log(`[客户端] 卡牌${idx} rect:`, { left: rect.left, top: rect.top, width: rect.width, height: rect.height })
+              cardPositions.push({
+                x: rect.left + rect.width / 2 - centerX,
+                y: rect.top + rect.height / 2 - centerY
+              })
+            })
+            console.log('[客户端] 从DOM获取占位牌位置:', cardPositions)
+          } else {
+            // fallback：使用计算位置
+            const fallbackPositions = calculateCardPositions(data.cards.length)
+            cardPositions.push(...fallbackPositions)
+            console.log('[客户端] 使用fallback计算位置:', cardPositions)
+          }
+          
+          // 4. 保持占位牌占据空间（不清空），但标记为动画中
+          // 占位牌会继续显示并占据空间，保证按钮位置正确
+          
+          // 5. 播放发牌动画（牌从屏幕中心飞向各自位置）
+          showDealingAnimation.value = true
+          dealingCards.value = data.cards.map((card, index) => ({
+            card,
+            index,
+            targetX: cardPositions[index].x,
+            targetY: cardPositions[index].y,
+            animating: true
+          }))
+          
+          console.log('[客户端] 开始发牌动画，卡牌数量:', data.cards.length)
+          
+          // 6. 播放发牌音效
+          audioManager.playCardslide()
+          
+          // 7. 动画结束后设置真实卡牌并启用点击
+          const animationDuration = 100 + (data.cards.length - 1) * 120 + 400
+          
+          setTimeout(() => {
+            showDealingAnimation.value = false
+            dealingCards.value = []
+            // 动画结束后设置真实卡牌（卡牌"落地"显示）
+            currentCards.value = data.cards
+            isDealingAnimating.value = false  // 启用点击
+            opponentFirstCard.value = null
+            isPriorityReceived.value = data.isPriority
+            
+            // ========== 女盗贼技能：隔墙有眼 ==========
+            // 如果女盗贼技能触发，直接设置对手的第一张和最后一张手牌
+            if (data.wallSkillTriggered && data.opponentFirstAndLastCard) {
+              console.log('[客户端] 女盗贼技能触发，设置对手手牌显示:', data.opponentFirstAndLastCard)
+              opponentFirstAndLastCard.value = data.opponentFirstAndLastCard
+              // 同时设置 viewedOpponentCard 为第一张牌（默认显示第一张）
+              viewedOpponentCard.value = data.opponentFirstAndLastCard.firstCard
+              viewedCardChoice.value = 'first'
+              // 设置 opponentFirstCard 以便在选牌和排序阶段显示
+              opponentFirstCard.value = data.opponentFirstAndLastCard.firstCard
+              
+              // 显示技能触发提示弹窗
+              wallSkillRevealedCards.value = {
+                firstCard: data.opponentFirstAndLastCard.firstCard,
+                lastCard: data.opponentFirstAndLastCard.lastCard,
+                totalCards: data.opponentFirstAndLastCard.totalCards || 3
+              }
+              showWallSkillReveal.value = true
+              console.log('[客户端] 显示女盗贼技能触发弹窗')
+            } else {
+              // 女盗贼技能未触发，清空两张牌的显示（确保不会显示上一回合的数据）
+              opponentFirstAndLastCard.value = { firstCard: null, lastCard: null }
+            }
+          }, animationDuration)
+        }, 50)  // 等待DOM渲染后获取占位牌位置
+      }
+
+      // 后手玩家收到先手的第一张牌
       socket.value.on('opponent_first_card_ready', (data) => {
         console.log('[客户端] 收到opponent_first_card_ready:', data)
         opponentFirstCard.value = data.opponentFirstCard
@@ -1019,13 +1970,21 @@ const currentTurn = computed(() => {
       })
       
       // 后手玩家选择查看先手的第一张或最后一张牌
+      // 注意：普通后手玩家只能选择一张牌，不应该设置 opponentFirstAndLastCard（两张牌）
+      // opponentFirstAndLastCard 只在女盗贼技能触发时设置（见 deal_cards 处理）
       socket.value.on('choose_opponent_card_to_view', (data) => {
-        console.log('[客户端] 收到选择查看对手手牌:', data)
-        opponentFirstAndLastCard.value = {
+        console.log('[客户端] 收到选择观看对手手牌:', data)
+        // 不设置 opponentFirstAndLastCard，让玩家选择后只显示一张牌
+        // 保存数据用于弹窗选择，但不直接显示在界面上
+        chooseOpponentCardData.value = {
           firstCard: data.firstCard,
           lastCard: data.lastCard
         }
+        // 使用上次选择作为默认值（第一次默认'first'）
+        viewedCardChoice.value = lastViewedCardChoice.value
         chooseOpponentCardVisible.value = true
+        // 所有回合都启动倒计时
+        startViewCardTimer()
       })
       
       // 后手玩家查看的牌已确定，进入选牌阶段
@@ -1095,6 +2054,11 @@ const currentTurn = computed(() => {
         const isMyCard = data.playerIndex === myPlayerIndex
         const isPriorityTurn = data.turnIndex % 2 === 0
         
+        // 如果是自己打出的牌，立即更新手牌"已打出"状态
+        if (isMyCard) {
+          currentPlayIndex.value = data.cardIndex + 1
+        }
+        
         // 启动飞牌动画（纯视觉效果）
         // 先在中央展示，然后飞到出牌区
         flyingCard.value = {
@@ -1103,9 +2067,6 @@ const currentTurn = computed(() => {
           isMyCard: isMyCard,
           isPriorityTurn: isPriorityTurn
         }
-        
-        // 更新当前出牌索引显示
-        currentPlayIndex.value = data.cardIndex
         
         // 动画分为两个阶段：
         // 1. 中央展示阶段（0-1秒）
@@ -1133,7 +2094,8 @@ const currentTurn = computed(() => {
         // 清除正在打出的牌动画
         playingCard.value = null
         gameState.value = { ...gameState.value, ...data }
-        currentPlayIndex.value = Math.floor(data.turnIndex / 2)
+        // 注意：不再在这里更新 currentPlayIndex，因为它已经在 card_played 事件中正确设置
+        // 这样可以确保每张牌打出后立即显示"已出"状态
         
         // 如果是自己的回合，自动出牌
         if (isMyTurn.value) {
@@ -1208,6 +2170,47 @@ const currentTurn = computed(() => {
         }
       })
       
+      // 技能特效
+      socket.value.on('skill_effect', (data) => {
+        console.log('[客户端] 技能特效:', data)
+        
+        // 女盗贼技能：隔墙有眼 - 查看对手手牌
+        if (data.skillId === 'thief_female_wall') {
+          console.log('[调试] ====== 客户端收到女盗贼隔墙有眼 ======')
+          console.log('[调试] 完整data对象:', JSON.stringify(data))
+          // 正确读取 data.revealedCards 对象
+          const revealed = data.revealedCards || data
+          console.log('[调试] revealed对象:', JSON.stringify(revealed))
+          console.log('[调试] firstCard:', JSON.stringify(revealed.firstCard))
+          console.log('[调试] lastCard:', JSON.stringify(revealed.lastCard))
+          console.log('[调试] totalCards:', revealed.totalCards)
+          
+          wallSkillRevealedCards.value = {
+            firstCard: revealed.firstCard,
+            lastCard: revealed.lastCard,
+            totalCards: revealed.totalCards
+          }
+          console.log('[调试] wallSkillRevealedCards.value已设置:', JSON.stringify(wallSkillRevealedCards.value))
+          
+          showWallSkillReveal.value = true
+          console.log('[调试] showWallSkillReveal.value已设置为true')
+          // 不再自动关闭，让用户手动关闭或在回合结束时清除
+          return
+        }
+        
+        if (gameBoardRef.value) {
+          gameBoardRef.value.setSkillEffect(data)
+        }
+      })
+      
+      // 障碍物销毁特效
+      socket.value.on('obstacle_destroyed', (data) => {
+        console.log('[客户端] 障碍物销毁:', data)
+        if (gameBoardRef.value) {
+          gameBoardRef.value.setObstacleDestroyed(data)
+        }
+      })
+      
       socket.value.on('game_message', (data) => {
         gameMessage.value = data.message
         
@@ -1261,6 +2264,14 @@ const currentTurn = computed(() => {
         }, 1500)
         
         gameState.value = { ...gameState.value, ...data }
+        
+        // 更新技能冷却显示（回合开始时同步）
+        if (data.player1SkillCooldown !== undefined) {
+          player1SkillCooldown.value = data.player1SkillCooldown
+        }
+        if (data.player2SkillCooldown !== undefined) {
+          player2SkillCooldown.value = data.player2SkillCooldown
+        }
         myHandCards.value = []
         currentCards.value = []
         opponentFirstCard.value = null
@@ -1346,6 +2357,11 @@ const currentTurn = computed(() => {
         opponentFirstCard.value = null
         currentPlayIndex.value = 0
         selectedMapSize.value = null
+        // 重置技能相关状态
+        player1SkillCooldown.value = 0
+        player2SkillCooldown.value = 0
+        skillSelected.value = false
+        console.log('[客户端] 已重置技能CD状态')
       })
       
       // 再来一局被拒绝
@@ -1379,10 +2395,13 @@ const currentTurn = computed(() => {
       socket.value.emit('join_room', { roomCode: roomCode.value, avatarId: myAvatarId.value })
     }
     
-    // 卡牌选择
+    // 卡牌选择（统一处理技能牌和普通牌）
     const toggleCardSelection = (index) => {
       // 只有在选择阶段才能选择
       if (gameState.value.phase !== 'selecting_priority' && gameState.value.phase !== 'selecting_normal') return
+      
+      // 发牌动画期间禁用点击
+      if (isDealingAnimating.value) return
       
       // 播放点击音效
       audioManager.playClick()
@@ -1390,21 +2409,113 @@ const currentTurn = computed(() => {
       if (gameState.value.phase === 'selecting_priority' && !isPriorityPlayer.value) return
       if (gameState.value.phase === 'selecting_normal' && isPriorityPlayer.value) return
       
+      // 检查点击的是否是技能牌
+      const card = currentCards.value[index]
+      const isSkillCard = card && card.isSkillCard
+      
+      // 统一选择逻辑：技能牌和普通牌一起计算，最多选3张
       const idx = selectedCards.value.indexOf(index)
       if (idx > -1) {
+        // 取消选中
         selectedCards.value.splice(idx, 1)
-      } else if (selectedCards.value.length < 3) {
+        // 如果取消的是技能牌，同步取消 skillSelected
+        if (isSkillCard) {
+          skillSelected.value = false
+          console.log('[技能] 通过选牌区取消选中技能牌')
+        }
+      } else {
+        // 选中：检查数量限制（统一最多3张）
+        if (selectedCards.value.length >= 3) {
+          return
+        }
         selectedCards.value.push(index)
+        // 如果选中的是技能牌，同步设置 skillSelected
+        if (isSkillCard) {
+          skillSelected.value = true
+          console.log('[技能] 通过选牌区选中技能牌')
+        }
       }
     }
     
-    const confirmCardSelection = () => {
-      if (selectedCards.value.length !== 3) return
+    // 处理 currentCards 中技能牌的点击（已整合到 toggleCardSelection）
+    const handleSkillCardInCurrentCards = (index) => {
+      // 统一使用 toggleCardSelection 处理
+      toggleCardSelection(index)
+    }
+    
+    // 处理技能卡牌点击
+    const handleSkillClick = (playerIndex) => {
+      // 只有自己的技能且是主动技能且不在冷却中才能选中
+      const isMySkill = (playerIndex === 0 && isPlayer1.value) || (playerIndex === 1 && !isPlayer1.value)
+      if (!isMySkill) return
+      
+      const skill = playerIndex === 0 ? player1Skill.value : player2Skill.value
+      const cooldown = playerIndex === 0 ? player1SkillCooldown.value : player2SkillCooldown.value
+      
+      // 只有主动技能且不在冷却中才能操作
+      if (!skill || skill.skillType !== 'active' || cooldown > 0) return
+      
+      // 只有在选牌阶段才能选择技能
+      const canSelect = gameState.value.phase === 'selecting_priority' || gameState.value.phase === 'selecting_normal'
+      if (!canSelect) return
+      
+      // 检查是否是当前应该选牌的玩家
+      const isMyTurnToSelect = (gameState.value.phase === 'selecting_priority' && isPriorityPlayer.value) ||
+                               (gameState.value.phase === 'selecting_normal' && !isPriorityPlayer.value)
+      if (!isMyTurnToSelect) return
+      
+      // 找到 currentCards 中技能牌的索引
+      const skillCardIndex = currentCards.value.findIndex(card => card && card.isSkillCard)
+      
+      // 切换选中状态
+      if (skillSelected.value) {
+        // 取消选中技能
+        skillSelected.value = false
+        // 同步从 selectedCards 中移除技能牌索引
+        if (skillCardIndex !== -1) {
+          const idx = selectedCards.value.indexOf(skillCardIndex)
+          if (idx > -1) {
+            selectedCards.value.splice(idx, 1)
+          }
+        }
+        console.log(`[技能] 玩家${playerIndex + 1} 通过头像旁技能卡取消选中技能: ${skill.skillName}`)
+      } else {
+        // 选中技能：需要检查是否已选满3张牌
+        if (selectedCards.value.length >= 3) {
+          // 已选满3张，不能再选技能
+          gameMessage.value = '已选满3张牌，请先取消选择其他牌'
+          messageType.value = 'error'
+          setTimeout(() => {
+            gameMessage.value = ''
+          }, 1500)
+          return
+        }
+        skillSelected.value = true
+        // 同步将技能牌索引添加到 selectedCards
+        if (skillCardIndex !== -1 && !selectedCards.value.includes(skillCardIndex)) {
+          selectedCards.value.push(skillCardIndex)
+        }
+        console.log(`[技能] 玩家${playerIndex + 1} 通过头像旁技能卡选中技能: ${skill.skillName}`)
+      }
+      
       // 播放点击音效
       audioManager.playClick()
+    }
+    
+    const confirmCardSelection = () => {
+      // 统一检查：必须选满3张牌
+      if (selectedCards.value.length !== 3) return
+      
+      // 播放点击音效
+      audioManager.playClick()
+      
       const selected = selectedCards.value.map(i => currentCards.value[i])
       console.log('[客户端] 确认选牌:', selected)
-      socket.value.emit('select_cards', selected)
+      
+      // 发送选牌结果（技能牌已包含在 selectedCards 中）
+      socket.value.emit('select_cards', { 
+        selectedCards: selectedCards.value
+      })
     }
     
     // 手牌顺序调整
@@ -1507,6 +2618,61 @@ const currentTurn = computed(() => {
         clearInterval(timerInterval)
         timerInterval = null
       }
+      // 停止倒计时音效
+      audioManager.stopCountdownSound()
+    }
+    
+    // 选择观看手牌倒计时
+    const startViewCardTimer = () => {
+      viewCardTimer.value = 5
+      stopTimer()
+      timerInterval = setInterval(() => {
+        if (viewCardTimer.value <= 0) {
+          stopTimer()
+          // 倒计时结束，使用当前选中的选项（默认是'first'，玩家可能已改为'last'）
+          if (viewedCardChoice.value) {
+            // 播放点击音效
+            audioManager.playClick()
+            // 保存玩家选择（记忆功能）
+            lastViewedCardChoice.value = viewedCardChoice.value
+            // 设置要显示的手牌（视觉反馈）- 使用 chooseOpponentCardData
+            if (viewedCardChoice.value === 'first') {
+              viewedOpponentCard.value = chooseOpponentCardData.value.firstCard
+              opponentFirstCard.value = chooseOpponentCardData.value.firstCard
+            } else {
+              viewedOpponentCard.value = chooseOpponentCardData.value.lastCard
+              opponentFirstCard.value = chooseOpponentCardData.value.lastCard
+            }
+            // 延迟发送，让用户看到选中效果
+            setTimeout(() => {
+              socket.value.emit('view_opponent_card', viewedCardChoice.value)
+            }, 800)
+          }
+        } else {
+          viewCardTimer.value--
+          // 倒计时3秒时播放音效
+          if (viewCardTimer.value === 3 && audioManager.isCountdownSoundEnabled()) {
+            audioManager.playCountdown3s()
+          }
+        }
+      }, 1000)
+    }
+    
+    // 取消等待，返回主界面
+    const cancelWaiting = () => {
+      console.log('[客户端] 取消等待，返回主界面')
+      
+      // 播放点击音效
+      audioManager.playClick()
+      
+      // 发送离开房间事件到服务器
+      if (socket.value && currentRoom.value) {
+        socket.value.emit('leave_room', currentRoom.value)
+      }
+      
+      // 重置状态，返回主界面
+      currentRoom.value = ''
+      gameState.value.phase = 'connecting'
     }
     
     // 回到开始页面
@@ -1585,12 +2751,28 @@ const currentTurn = computed(() => {
       selectedMapSize.value = size
     }
     
+    // 获取主题特色地形信息
+    const getThemeShapeInfo = (themeId) => {
+      const shapeData = THEME_SHAPE_LAYOUTS[themeId]
+      if (!shapeData) {
+        return { icon: '🗺️', name: '特色地形', cells: 0 }
+      }
+      const cells = countThemeShapeCells(shapeData.layout)
+      const theme = MAP_THEMES[themeId]
+      return {
+        icon: theme?.icon || '🗺️',
+        name: shapeData.name,
+        cells: cells
+      }
+    }
+    
     const confirmMapSize = () => {
       if (!selectedMapSize.value) return
-      console.log('[客户端] 确认地图配置:', selectedMapSize.value, '迷雾:', selectedFogEnabled.value)
+      console.log('[客户端] 确认地图配置:', selectedMapSize.value, '迷雾:', selectedFogEnabled.value, '主题:', selectedTheme.value)
       socket.value.emit('map_size_selected', { 
         mapSize: selectedMapSize.value, 
-        fogEnabled: selectedFogEnabled.value 
+        fogEnabled: selectedFogEnabled.value,
+        themeId: selectedTheme.value
       })
     }
     
@@ -1616,19 +2798,29 @@ const currentTurn = computed(() => {
       audioManager.playClick()
     }
     
+    // 关闭女盗贼技能查看手牌弹窗
+    const closeWallSkillReveal = () => {
+      showWallSkillReveal.value = false
+      audioManager.playClick()
+      console.log('[调试] 用户关闭隔墙有眼弹窗，wallSkillRevealedCards数据保留:', JSON.stringify(wallSkillRevealedCards.value))
+    }
+    
     const confirmCardChoice = () => {
       if (!viewedCardChoice.value) return
       // 播放点击音效
       audioManager.playClick()
       console.log('[客户端] 选择查看对手的', viewedCardChoice.value, '牌')
       
-      // 设置要显示的手牌
+      // 保存玩家选择（记忆功能）
+      lastViewedCardChoice.value = viewedCardChoice.value
+      
+      // 设置要显示的手牌 - 使用 chooseOpponentCardData（普通后手玩家只能看到一张牌）
       if (viewedCardChoice.value === 'first') {
-        viewedOpponentCard.value = opponentFirstAndLastCard.value.firstCard
-        opponentFirstCard.value = opponentFirstAndLastCard.value.firstCard
+        viewedOpponentCard.value = chooseOpponentCardData.value.firstCard
+        opponentFirstCard.value = chooseOpponentCardData.value.firstCard
       } else {
-        viewedOpponentCard.value = opponentFirstAndLastCard.value.lastCard
-        opponentFirstCard.value = opponentFirstAndLastCard.value.lastCard
+        viewedOpponentCard.value = chooseOpponentCardData.value.lastCard
+        opponentFirstCard.value = chooseOpponentCardData.value.lastCard
       }
       
       // 发送选择到服务器
@@ -1637,6 +2829,8 @@ const currentTurn = computed(() => {
     
     onMounted(() => {
       initSocket()
+      // 生成固定的粒子样式
+      generateParticleStyles()
       // 首次进入时显示规则（如果用户没有勾选"不再显示"）
       if (!dontShowRules.value) {
         showRules.value = true
@@ -1701,6 +2895,8 @@ const currentTurn = computed(() => {
       opponentFirstAndLastCard,
       viewedOpponentCard,
       viewedCardChoice,
+      isFirstRoundForChoice,
+      viewCardTimer,
       selectCardChoice,
       confirmCardChoice,
       // 出牌展示
@@ -1710,6 +2906,11 @@ const currentTurn = computed(() => {
       // 飞牌动画
       flyingCard,
       flyingCardStyle,
+      // 发牌动画
+      showDealingAnimation,
+      dealingCards,
+      isDealingAnimating,
+      availableCardsRef,
       // 出牌区DOM引用
       myPlayedAreaRef,
       opponentPlayedAreaRef,
@@ -1731,6 +2932,7 @@ const currentTurn = computed(() => {
       screenBgStyle,
       // 角色形象相关
       myAvatarId,
+      mySkill,
       showAvatarSelector,
       player1AvatarId,
       player2AvatarId,
@@ -1740,7 +2942,49 @@ const currentTurn = computed(() => {
       // 设置面板相关
       showSettings,
       openSettings,
-      closeSettings
+      closeSettings,
+      // 粒子背景
+      particleStyles,
+      // 游戏内主题粒子
+      gameParticleStyles,
+      // ID匹配相关
+      selectedMatchMode,
+      showIdMatchLobby,
+      showInvitationDialog,
+      currentInvitation,
+      idMatchLobbyRef,
+      selectMatchMode,
+      onIdMatchFound,
+      onLeaveIdLobby,
+      onInvitationReceived,
+      onAcceptInvitation,
+      onRejectInvitation,
+      // 地图主题选择
+      themeOptions,
+      selectedTheme,
+      // 特色地形信息
+      getThemeShapeInfo,
+      // 取消等待
+      cancelWaiting,
+      // 技能相关
+      skillSelected,
+      canSelectSkillInSelection,
+      handleSkillClick,
+      myActiveSkill,
+      mySkillCooldown,
+      // 选牌计数
+      totalSelectedCount,
+      canConfirmSelection,
+      // 女盗贼技能：隔墙有眼
+      showWallSkillReveal,
+      wallSkillRevealedCards,
+      closeWallSkillReveal,
+      // 技能卡牌UI显示所需
+      player1Skill,
+      player2Skill,
+      player1SkillCooldown,
+      player2SkillCooldown,
+      isSelectingPhase
     }
   }
 }
@@ -1770,6 +3014,10 @@ html, body {
   overflow-x: hidden;
 }
 
+.game-container.no-scroll {
+  overflow: hidden;
+}
+
 /* 连接界面 */
 .connect-screen {
   display: flex;
@@ -1780,6 +3028,57 @@ html, body {
   height: auto;
   color: white;
   padding: 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 全局粒子背景样式 */
+.global-particles-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 粒子背景样式（已弃用，保留兼容） */
+.particles-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.particle {
+  position: absolute;
+  bottom: -20px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  animation: particle-float linear infinite;
+}
+
+@keyframes particle-float {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100vh) rotate(720deg);
+    opacity: 0;
+  }
 }
 
 .title {
@@ -1835,10 +3134,110 @@ html, body {
   color: white;
 }
 
+.btn-id-match {
+  background: linear-gradient(135deg, #6c5ce7, #a855f7);
+  color: white;
+  border: none;
+  font-weight: bold;
+}
+
+.btn-id-match:hover {
+  background: linear-gradient(135deg, #5b4cdb, #9333ea);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4);
+}
+
+/* 匹配模式选择按钮 */
+.match-mode-buttons {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.mode-btn {
+  width: 180px;
+  height: 200px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 3px solid transparent;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+}
+
+.mode-btn:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+}
+
+.room-mode-btn {
+  border-color: #48bb78;
+}
+
+.room-mode-btn:hover {
+  background: linear-gradient(145deg, rgba(72, 187, 120, 0.1), #fff);
+  border-color: #38a169;
+}
+
+.id-mode-btn {
+  border-color: #6c5ce7;
+}
+
+.id-mode-btn:hover {
+  background: linear-gradient(145deg, rgba(108, 92, 231, 0.1), #fff);
+  border-color: #5b4cdb;
+}
+
+.mode-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.mode-title {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.mode-desc {
+  font-size: 0.9rem;
+  color: #888;
+}
+
+/* 房间匹配表单 */
+.room-match-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.back-btn {
+  background: transparent;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  color: white;
+  margin-bottom: 1.5rem;
+  padding: 0.5rem 1.5rem;
+}
+
+.back-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: white;
+}
+
 .btn-confirm {
   background: #48bb78;
   color: white;
   margin-top: 1rem;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .btn-confirm:disabled {
@@ -1867,6 +3266,8 @@ html, body {
   height: auto;
   color: white;
   padding: 2rem;
+  position: relative;
+  overflow: hidden;
 }
 
 .waiting-text {
@@ -1891,6 +3292,7 @@ html, body {
 /* 游戏界面 */
 .game-screen {
   display: flex;
+  position: relative;
   flex-direction: column;
   height: auto;
   min-height: 100vh;
@@ -1907,6 +3309,8 @@ html, body {
   border-radius: 12px;
   margin-bottom: 1rem;
   box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  position: relative;
+  z-index: 1;
 }
 
 .player-info {
@@ -1941,11 +3345,13 @@ html, body {
   align-items: center;
   gap: 1rem;
   padding: 0.5rem;
+  position: relative;
+  z-index: 1;
 }
 
 /* 玩家侧边面板 */
 .player-side-panel {
-  width: 120px;
+  width: 280px;
   background: rgba(255, 255, 255, 0.98);
   border-radius: 20px;
   padding: 1.2rem 0.8rem;
@@ -2215,8 +3621,69 @@ html, body {
 }
 
 .card.disabled {
+  pointer-events: none;
+  /* 动画期间正常显示内容，只是禁用点击 */
+}
+
+/* 占位牌：不可见但占据空间 */
+.card.placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 选牌阶段的技能牌样式 */
+.skill-card-in-selection {
+  background: linear-gradient(145deg, #fff9e6, #fff3cc);
+  border: 2px solid #ffd700;
+}
+
+.skill-card-in-selection:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(255, 215, 0, 0.4);
+}
+
+.skill-card-in-selection.selected {
+  background: linear-gradient(145deg, #ffd700, #ffcc00);
+  border-color: #f39c12;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+}
+
+/* 选牌阶段技能牌禁用状态 */
+.skill-card-in-selection.disabled {
+  opacity: 0.5;
   cursor: not-allowed;
-  opacity: 0.7;
+}
+
+.skill-card-in-selection.disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* 技能标识 */
+.skill-badge {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  font-size: 0.6rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+/* 禁用提示 */
+.disabled-hint {
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(220, 53, 69, 0.9);
+  color: white;
+  font-size: 0.55rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
 }
 
 .card.first-visible {
@@ -2478,6 +3945,8 @@ html, body {
   height: auto;
   color: white;
   padding: 2rem;
+  position: relative;
+  overflow: hidden;
 }
 
 .configuring-screen h3 {
@@ -2573,6 +4042,114 @@ html, body {
   color: rgba(255, 255, 255, 0.8);
   margin-top: 0.5rem;
   margin-bottom: 0;
+}
+
+/* 地图主题选择 */
+.theme-selection {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+
+.theme-selection p {
+  font-size: 1.2rem;
+  margin-bottom: 0.8rem;
+}
+
+.theme-options {
+  display: flex;
+  gap: 0.8rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.theme-option-btn {
+  width: auto;
+  min-width: 90px;
+  height: 50px;
+  font-size: 1rem;
+  background: white;
+  color: #667eea;
+  border: 3px solid transparent;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1rem;
+}
+
+.theme-option-btn.selected {
+  background: #48bb78;
+  color: white;
+  border-color: #38a169;
+}
+
+.theme-option-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+}
+
+/* 特色地形选择 */
+.shape-selection {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: rgba(255, 215, 0, 0.15);
+  border-radius: 12px;
+  border: 2px solid rgba(255, 215, 0, 0.4);
+}
+
+.shape-selection p {
+  font-size: 1.2rem;
+  margin-bottom: 0.8rem;
+  color: #ffd700;
+}
+
+.shape-options {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.shape-option-btn {
+  width: auto;
+  min-width: 180px;
+  height: 60px;
+  font-size: 1.1rem;
+  background: linear-gradient(145deg, rgba(255, 215, 0, 0.2), rgba(255, 215, 0, 0.1));
+  color: white;
+  border: 3px solid rgba(255, 215, 0, 0.5);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.5rem;
+}
+
+.shape-option-btn.selected {
+  background: linear-gradient(145deg, #ffd700, #ffb700);
+  color: #333;
+  border-color: #ffd700;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+}
+
+.shape-option-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.4);
+}
+
+.shape-cells {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  margin-left: 0.5rem;
+}
+
+/* 地图大小选择包装 */
+.map-size-wrapper {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
 }
 
 .confirm-map-btn {
@@ -2853,6 +4430,30 @@ html, body {
 .confirm-choice-btn:disabled {
   background: #a0a0a0;
   cursor: not-allowed;
+}
+
+/* 选择观看手牌倒计时样式 */
+.view-card-timer {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: #667eea;
+  margin-bottom: 1rem;
+  padding: 0.5rem 1.5rem;
+  background: linear-gradient(145deg, #f0f4ff, #e8ecf8);
+  border-radius: 8px;
+  border: 2px solid #667eea;
+}
+
+.view-card-timer.timer-warning {
+  color: #ff6b6b;
+  border-color: #ff6b6b;
+  background: linear-gradient(145deg, #fff0f0, #ffe8e8);
+  animation: timerPulse 0.5s infinite;
+}
+
+@keyframes timerPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
 }
 
 /* 出牌展示区样式 */
@@ -3204,6 +4805,18 @@ html, body {
   font-weight: bold;
   text-shadow: 0 4px 30px rgba(102, 126, 234, 0.8);
   margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+}
+
+.map-name-text .theme-icon {
+  font-size: 4rem;
+  /* emoji保持原色，不应用渐变 */
+}
+
+.map-name-text .theme-name {
   background: linear-gradient(135deg, #667eea, #48bb78);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -3374,5 +4987,631 @@ html, body {
 .game-settings-btn:hover {
   transform: rotate(30deg) scale(1.1);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* 游戏内粒子背景层 */
+.game-particles-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.game-particle {
+  position: absolute;
+  top: -20px;
+  animation: game-particle-fall linear infinite;
+}
+
+@keyframes game-particle-fall {
+  0% {
+    transform: translateY(0) translateX(0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--particle-opacity, 0.5);
+  }
+  90% {
+    opacity: var(--particle-opacity, 0.5);
+  }
+  100% {
+    transform: translateY(100vh) translateX(var(--swing, 0)) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* 树叶粒子 - 森林主题 */
+.game-particle.leaf {
+  border-radius: 50% 0 50% 0;
+  transform-origin: center;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+  animation: game-particle-leaf linear infinite;
+}
+
+@keyframes game-particle-leaf {
+  0% {
+    transform: translateY(0) translateX(0) rotate(-30deg) scale(0.8);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--particle-opacity, 0.5);
+  }
+  20% {
+    transform: translateY(20vh) translateX(20px) rotate(30deg) scale(1);
+  }
+  40% {
+    transform: translateY(40vh) translateX(-15px) rotate(-20deg) scale(1.1);
+  }
+  60% {
+    transform: translateY(60vh) translateX(25px) rotate(40deg) scale(1);
+  }
+  80% {
+    transform: translateY(80vh) translateX(-20px) rotate(-10deg) scale(0.9);
+  }
+  90% {
+    opacity: var(--particle-opacity, 0.5);
+  }
+  100% {
+    transform: translateY(100vh) translateX(var(--swing, 0)) rotate(30deg) scale(0.7);
+    opacity: 0;
+  }
+}
+
+/* 沙尘粒子 - 沙漠主题 */
+.game-particle.sand {
+  border-radius: 50%;
+  filter: blur(0.5px);
+  box-shadow: 0 0 4px rgba(212, 165, 116, 0.5);
+  animation: game-particle-sand linear infinite;
+}
+
+@keyframes game-particle-sand {
+  0% {
+    transform: translateY(0) translateX(0) scale(0.6);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--particle-opacity, 0.4);
+    transform: translateY(10vh) translateX(10px) scale(1);
+  }
+  30% {
+    transform: translateY(30vh) translateX(35px) scale(1.1);
+  }
+  50% {
+    transform: translateY(50vh) translateX(15px) scale(0.9);
+  }
+  70% {
+    transform: translateY(70vh) translateX(40px) scale(1);
+  }
+  90% {
+    opacity: var(--particle-opacity, 0.4);
+    transform: translateY(90vh) translateX(20px) scale(0.8);
+  }
+  100% {
+    transform: translateY(100vh) translateX(-20px) scale(0.5);
+    opacity: 0;
+  }
+}
+
+/* 雪花粒子 - 冰原主题 */
+.game-particle.snow {
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.9), 0 0 12px rgba(200, 230, 255, 0.5);
+  animation: game-particle-snow linear infinite;
+}
+
+@keyframes game-particle-snow {
+  0% {
+    transform: translateY(0) translateX(0) rotate(0deg) scale(0.5);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--particle-opacity, 0.6);
+    transform: translateY(10vh) translateX(10px) rotate(60deg) scale(1);
+  }
+  25% {
+    transform: translateY(25vh) translateX(25px) rotate(120deg) scale(1.1);
+  }
+  40% {
+    transform: translateY(40vh) translateX(-15px) rotate(180deg) scale(1);
+  }
+  55% {
+    transform: translateY(55vh) translateX(20px) rotate(240deg) scale(0.9);
+  }
+  70% {
+    transform: translateY(70vh) translateX(-25px) rotate(300deg) scale(1);
+  }
+  85% {
+    transform: translateY(85vh) translateX(15px) rotate(350deg) scale(0.8);
+  }
+  90% {
+    opacity: var(--particle-opacity, 0.6);
+  }
+  100% {
+    transform: translateY(100vh) translateX(-5px) rotate(360deg) scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* 火星粒子 - 火山主题 */
+.game-particle.ember {
+  border-radius: 50%;
+  animation: game-particle-ember linear infinite;
+  box-shadow: 0 0 6px var(--particle-color, #ff6b35), 0 0 12px var(--particle-color, #ff6b35);
+}
+
+@keyframes game-particle-ember {
+  0% {
+    transform: translateY(100vh) translateX(0) scale(0.5);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--particle-opacity, 0.7);
+    transform: translateY(90vh) translateX(5px) scale(1);
+  }
+  50% {
+    transform: translateY(50vh) translateX(-10px) scale(0.9);
+  }
+  90% {
+    opacity: calc(var(--particle-opacity, 0.7) * 0.5);
+    transform: translateY(10vh) translateX(15px) scale(0.6);
+  }
+  100% {
+    transform: translateY(-10vh) translateX(-5px) scale(0);
+    opacity: 0;
+  }
+}
+
+/* 灰尘粒子 - 古城主题 */
+.game-particle.dust {
+  border-radius: 50%;
+  filter: blur(0.5px);
+  box-shadow: 0 0 4px var(--particle-color, #8b4513);
+  animation: game-particle-dust linear infinite;
+}
+
+@keyframes game-particle-dust {
+  0% {
+    transform: translateY(0) translateX(0) scale(0.6) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--particle-opacity, 0.4);
+    transform: translateY(10vh) translateX(15px) scale(0.9) rotate(45deg);
+  }
+  25% {
+    transform: translateY(25vh) translateX(30px) scale(1) rotate(90deg);
+  }
+  40% {
+    transform: translateY(40vh) translateX(-10px) scale(1.1) rotate(135deg);
+  }
+  55% {
+    transform: translateY(55vh) translateX(25px) scale(0.9) rotate(180deg);
+  }
+  70% {
+    transform: translateY(70vh) translateX(-20px) scale(1) rotate(225deg);
+  }
+  85% {
+    transform: translateY(85vh) translateX(15px) scale(0.8) rotate(270deg);
+  }
+  90% {
+    opacity: var(--particle-opacity, 0.4);
+  }
+  100% {
+    transform: translateY(100vh) translateX(10px) scale(0.5) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* 默认粒子样式 */
+.game-particle.default {
+  border-radius: 50%;
+  animation: game-particle-fall linear infinite;
+}
+
+/* 发牌动画样式 */
+.dealing-animation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 3000;
+}
+
+.dealing-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100px;
+  height: 140px;
+  background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+  border: 2px solid #dee2e6;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  animation: dealCard 0.4s ease-out forwards;
+  animation-delay: var(--delay);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+}
+
+.dealing-card .card-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.dealing-card .card-name {
+  font-size: 0.85rem;
+  text-align: center;
+  color: #333;
+  font-weight: bold;
+}
+
+@keyframes dealCard {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  30% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(calc(-50% + var(--target-x)), calc(-50% + var(--target-y, 200px))) scale(1);
+  }
+}
+
+/* 女盗贼技能：隔墙有眼 - 查看对手手牌弹窗 */
+.wall-skill-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.wall-skill-content {
+  background: linear-gradient(145deg, #1a1a2e, #16213e);
+  padding: 2rem 2.5rem;
+  border-radius: 20px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(102, 126, 234, 0.3);
+  border: 2px solid rgba(102, 126, 234, 0.5);
+  max-width: 400px;
+  animation: scaleIn 0.3s ease-out;
+}
+
+@keyframes scaleIn {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.wall-skill-content h2 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+  color: #ffd700;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.wall-skill-tip {
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 1.5rem;
+}
+
+.revealed-cards {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  margin-bottom: 1rem;
+}
+
+.revealed-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.revealed-card .card-label {
+  font-size: 0.9rem;
+  color: #a0a0a0;
+  margin-bottom: 0.5rem;
+}
+
+.wall-skill-card {
+  width: 100px;
+  height: 140px;
+  background: linear-gradient(145deg, #2d2d44, #1a1a2e);
+  border: 3px solid #667eea;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 20px rgba(102, 126, 234, 0.4);
+  animation: cardGlow 1.5s ease-in-out infinite;
+}
+
+.wall-skill-card .card-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.wall-skill-card .card-name {
+  font-size: 0.85rem;
+  color: white;
+  text-align: center;
+}
+
+.wall-skill-note {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 1rem;
+}
+
+.wall-skill-close-btn {
+  margin-top: 1.5rem;
+  padding: 0.8rem 2.5rem;
+  font-size: 1.1rem;
+  background: linear-gradient(145deg, #48bb78, #38a169);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 15px rgba(72, 187, 120, 0.4);
+}
+
+.wall-skill-close-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(72, 187, 120, 0.6);
+}
+
+/* 女盗贼技能：选牌和排序阶段显示两张牌的样式 */
+.wall-skill-cards {
+  background: linear-gradient(145deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+  border: 2px solid rgba(102, 126, 234, 0.5);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.wall-skill-title {
+  font-size: 1.1rem;
+  color: #667eea;
+  font-weight: bold;
+  margin-bottom: 0.8rem;
+  text-align: center;
+}
+
+.wall-skill-cards-row {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.revealed-card-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.revealed-card-item .card-label {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.wall-skill-reveal-card {
+  width: 90px;
+  height: 120px;
+  background: linear-gradient(145deg, #f0f4ff, #e8ecf8);
+  border: 3px solid #667eea;
+  box-shadow: 0 0 15px rgba(102, 126, 234, 0.4);
+}
+
+.wall-skill-reveal-card .card-icon {
+  font-size: 2rem;
+}
+
+.wall-skill-reveal-card .card-name {
+  font-size: 0.8rem;
+}
+
+/* ========== 技能卡牌UI样式 ========== */
+
+/* 面板内容包裹层 */
+.panel-content-wrapper {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+/* 玩家信息区域 */
+.player-info-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+/* 技能卡牌区域 */
+.skill-card-area {
+  width: 110px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 左侧面板：技能卡牌在最左边（远离棋盘） */
+.skill-card-area.left-skill {
+  order: -1;
+}
+
+/* 右侧面板：技能卡牌在最右边（远离棋盘） */
+.skill-card-area.right-skill {
+  order: 1;
+}
+
+/* 技能卡牌基础样式 */
+.skill-card {
+  width: 100px;
+  height: 140px;
+  padding: 0.5rem;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  position: relative;
+  transition: all 0.3s ease;
+  cursor: default;
+}
+
+/* 主动技能卡牌样式（金色渐变） */
+.skill-card.active-skill {
+  background: linear-gradient(145deg, #fff9e6, #fff3cc);
+  border: 2px solid #ffd700;
+  box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
+}
+
+/* 被动技能卡牌样式（银色渐变） */
+.skill-card.passive-skill {
+  background: linear-gradient(145deg, #f0f0f0, #e8e8e8);
+  border: 2px solid #c0c0c0;
+  box-shadow: 0 4px 15px rgba(192, 192, 192, 0.3);
+}
+
+/* 技能图标 */
+.skill-card .skill-icon {
+  font-size: 2rem;
+  margin-bottom: 0.3rem;
+}
+
+/* 技能名称 */
+.skill-card .skill-name {
+  font-size: 0.75rem;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 0.2rem;
+}
+
+/* 技能类型标签 */
+.skill-card .skill-type-label {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-bottom: 0.2rem;
+}
+
+.active-skill .skill-type-label {
+  background: linear-gradient(135deg, #ffd700, #ffb700);
+  color: #333;
+}
+
+.passive-skill .skill-type-label {
+  background: linear-gradient(135deg, #c0c0c0, #a0a0a0);
+  color: #333;
+}
+
+/* 技能冷却状态文字 */
+.skill-card .skill-cooldown {
+  font-size: 0.65rem;
+  color: #666;
+  margin-bottom: 0.2rem;
+}
+
+/* 技能描述 */
+.skill-card .skill-description {
+  font-size: 0.6rem;
+  color: #888;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* 可选中状态 - 脉冲动画 */
+.skill-card.can-select {
+  cursor: pointer;
+  animation: skillPulse 2s ease-in-out infinite;
+}
+
+.skill-card.can-select:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.5);
+}
+
+@keyframes skillPulse {
+  0%, 100% { box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3); }
+  50% { box-shadow: 0 4px 25px rgba(255, 215, 0, 0.6); }
+}
+
+/* 选中状态 */
+.skill-card.selected {
+  background: linear-gradient(145deg, #ffd700, #ffcc00);
+  border-color: #ff8c00;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+  transform: scale(1.02);
+}
+
+/* 冷却中状态 */
+.skill-card.on-cooldown {
+  opacity: 0.7;
+  filter: grayscale(0.5);
+}
+
+/* 冷却遮罩层 */
+.cooldown-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cooldown-number {
+  font-size: 2rem;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 </style>

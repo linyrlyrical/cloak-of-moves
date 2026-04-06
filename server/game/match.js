@@ -1,4 +1,4 @@
-import { GAME_CONFIG, CARD_TYPES, ALL_CARD_TYPES, DIRECTION_OFFSET, GAME_PHASES, MAP_THEMES, THEME_LIST, PORTAL_COLORS, PORTAL_COLOR_LIST } from '../shared/constants.js'
+import { GAME_CONFIG, CARD_TYPES, ALL_CARD_TYPES, DIRECTION_OFFSET, GAME_PHASES, MAP_THEMES, THEME_LIST, PORTAL_COLORS, PORTAL_COLOR_LIST, THEME_SHAPE_LAYOUTS, CHARACTER_SKILLS, getCharacterSkillById } from '../shared/constants.js'
 
 export class MatchManager {
   constructor() {
@@ -96,7 +96,14 @@ class Match {
         orderConfirmed: false,
         isDefending: false,
         currentCards: [],  // 当前回合可选择的牌
-        scoutEffects: []  // 探查效果数组
+        scoutEffects: [],  // 探查效果数组
+        // ========== 技能相关字段 ==========
+        skill: null,           // 当前角色技能配置
+        skillCooldown: 0,      // 当前冷却回合数
+        skillSelected: false,  // 本回合是否选择了技能牌
+        historyVision: [],     // 历史视野记录（男阅读者用）
+        normalTurnsCount: 0,   // 后手回合计数（女盗贼用）
+        wallSkillLastTriggeredRound: -1  // 女盗贼技能上次触发的回合，-1表示从未触发
       },
       {
         id: '',
@@ -108,7 +115,14 @@ class Match {
         orderConfirmed: false,
         isDefending: false,
         currentCards: [],  // 当前回合可选择的牌
-        scoutEffects: []  // 探查效果数组
+        scoutEffects: [],  // 探查效果数组
+        // ========== 技能相关字段 ==========
+        skill: null,           // 当前角色技能配置
+        skillCooldown: 0,      // 当前冷却回合数
+        skillSelected: false,  // 本回合是否选择了技能牌
+        historyVision: [],     // 历史视野记录（男阅读者用）
+        normalTurnsCount: 0,   // 后手回合计数（女盗贼用）
+        wallSkillLastTriggeredRound: -1  // 女盗贼技能上次触发的回合，-1表示从未触发
       }
     ]
     
@@ -159,6 +173,140 @@ class Match {
     }
     
     return obstacles
+  }
+  
+  // 特色地形地图：在有效区域内随机生成普通障碍物
+  generateShapeMapObstacles(layout) {
+    // 获取有效区域内的所有可用地格（layout=1的格子）
+    const validCells = []
+    for (let y = 0; y < layout.length; y++) {
+      for (let x = 0; x < layout[y].length; x++) {
+        if (layout[y][x] === 1) {
+          validCells.push({ x, y })
+        }
+      }
+    }
+    
+    // 计算有效区域面积
+    const validArea = validCells.length
+    if (validArea < 10) {
+      console.log(`[障碍] 特色地形有效区域过小(${validArea}格)，不生成普通障碍物`)
+      return
+    }
+    
+    // 计算障碍物数量：有效面积/6，范围 2 ~ 有效面积/5
+    const obstacleCount = Math.max(2, Math.min(Math.floor(validArea / 6), Math.floor(validArea / 5)))
+    console.log(`[障碍] 特色地形有效区域 ${validArea}格，计划生成 ${obstacleCount} 个普通障碍物`)
+    
+    // 玩家起始位置
+    const player1Pos = this.playerStates[0].position
+    const player2Pos = this.playerStates[1].position
+    
+    // 禁止区域：玩家起始位置及其周围一格
+    const forbidden = new Set()
+    const addToForbidden = (x, y) => {
+      forbidden.add(`${x},${y}`)
+    }
+    
+    // 玩家1周围禁止放置障碍物
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        addToForbidden(player1Pos.x + dx, player1Pos.y + dy)
+      }
+    }
+    
+    // 玩家2周围禁止放置障碍物
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        addToForbidden(player2Pos.x + dx, player2Pos.y + dy)
+      }
+    }
+    
+    // 最多尝试20次生成有效布局
+    const maxAttempts = 20
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // 临时障碍物数组
+      const tempObstacles = []
+      
+      // 从有效格子中随机选择障碍物位置
+      const availableCells = validCells.filter(cell => !forbidden.has(`${cell.x},${cell.y}`))
+      const shuffledCells = availableCells.sort(() => Math.random() - 0.5)
+      
+      for (let i = 0; i < obstacleCount && i < shuffledCells.length; i++) {
+        tempObstacles.push({ x: shuffledCells[i].x, y: shuffledCells[i].y })
+      }
+      
+      // 检查路径连通性
+      if (this.checkPathConnectivity(layout, tempObstacles, player1Pos, player2Pos)) {
+        // 路径连通，添加障碍物到地图
+        this.map.obstacles.push(...tempObstacles)
+        console.log(`[障碍] 特色地形生成 ${tempObstacles.length} 个普通障碍物，尝试次数: ${attempt + 1}`)
+        return
+      }
+    }
+    
+    console.log(`[障碍] 特色地形无法生成连通的障碍物布局，跳过普通障碍物`)
+  }
+  
+  // 检查两名玩家之间是否存在可达路径（BFS）
+  checkPathConnectivity(layout, obstacles, startPos, endPos) {
+    // 创建障碍物位置集合（包括边界障碍物）
+    const obstacleSet = new Set()
+    this.map.obstacles.forEach(o => obstacleSet.add(`${o.x},${o.y}`))
+    obstacles.forEach(o => obstacleSet.add(`${o.x},${o.y}`))
+    
+    // BFS搜索
+    const queue = [{ x: startPos.x, y: startPos.y }]
+    const visited = new Set()
+    visited.add(`${startPos.x},${startPos.y}`)
+    
+    const directions = [
+      { dx: 0, dy: -1 },  // 上
+      { dx: 0, dy: 1 },   // 下
+      { dx: -1, dy: 0 },  // 左
+      { dx: 1, dy: 0 }    // 右
+    ]
+    
+    while (queue.length > 0) {
+      const current = queue.shift()
+      
+      // 检查是否到达终点
+      if (current.x === endPos.x && current.y === endPos.y) {
+        return true
+      }
+      
+      // 探索四个方向
+      for (const dir of directions) {
+        const newX = current.x + dir.dx
+        const newY = current.y + dir.dy
+        const key = `${newX},${newY}`
+        
+        // 检查边界
+        if (newX < 0 || newX >= this.map.width || newY < 0 || newY >= this.map.height) {
+          continue
+        }
+        
+        // 检查是否为有效区域
+        if (layout[newY][newX] !== 1) {
+          continue
+        }
+        
+        // 检查是否已访问
+        if (visited.has(key)) {
+          continue
+        }
+        
+        // 检查是否有障碍物
+        if (obstacleSet.has(key)) {
+          continue
+        }
+        
+        visited.add(key)
+        queue.push({ x: newX, y: newY })
+      }
+    }
+    
+    return false
   }
   
   // 根据地图面积计算传送门数量
@@ -284,6 +432,22 @@ class Match {
     }
     this.playerStates[index].id = socketId
     this.playerStates[index].avatarId = avatarId
+    
+    // ========== 技能初始化 ==========
+    if (avatarId) {
+      const skillConfig = getCharacterSkillById(avatarId)
+      if (skillConfig) {
+        this.playerStates[index].skill = skillConfig
+        console.log(`[技能] 玩家${index + 1}角色: ${skillConfig.name}, 技能: ${skillConfig.skillName} (${skillConfig.skillType === 'active' ? '主动' : '被动'})`)
+        
+        // ========== 女骑士血量加成 ==========
+        if (skillConfig.bonusHp) {
+          this.playerStates[index].hp = GAME_CONFIG.INITIAL_HP + skillConfig.bonusHp
+          console.log(`[技能] 女骑士坚韧突刺：初始血量+${skillConfig.bonusHp}，当前HP: ${this.playerStates[index].hp}`)
+        }
+      }
+    }
+    
     console.log(`[玩家] 玩家${index + 1}设置为: ${socketId}, 形象: ${avatarId || '默认'}`)
     
     // 检查两个玩家是否都已加入
@@ -312,50 +476,116 @@ class Match {
     // 支持传入 size 或 config 对象
     const size = typeof config === 'object' ? config.mapSize : config
     const fogEnabled = typeof config === 'object' ? config.fogEnabled : GAME_CONFIG.FOG_ENABLED_DEFAULT
-    
-    // 验证地图大小是否在允许范围内
-    if (!GAME_CONFIG.MAP_SIZE_OPTIONS.includes(size)) {
-      console.error(`[错误] 无效的地图大小: ${size}`)
-      return false
-    }
+    const themeId = typeof config === 'object' ? config.themeId : 'random'
     
     // 保存迷雾设置
     this.fogEnabled = fogEnabled
     console.log(`[配置] 迷雾效果: ${fogEnabled ? '启用' : '关闭'}`)
     
+    // 保存主题设置
+    this.selectedThemeId = themeId
+    console.log(`[配置] 地图主题: ${themeId}`)
+    
     this.mapConfig.selectedSize = size
     this.mapConfig.isConfigured = true
     
-    // 解析地图大小（支持正方形和1×N单行地图）
-    if (typeof size === 'string' && size.startsWith('1x')) {
+    // 检查是否为特色地形模式
+    if (size === 'shape') {
+      // 特色地形模式：如果主题是random或不存在于布局中，随机选择一个有效的主题
+      let actualThemeId = themeId
+      if (themeId === 'random' || !THEME_SHAPE_LAYOUTS[themeId]) {
+        const themeKeys = Object.keys(THEME_SHAPE_LAYOUTS)
+        actualThemeId = themeKeys[Math.floor(Math.random() * themeKeys.length)]
+        console.log(`[配置] 特色地形随机选择主题: ${actualThemeId}`)
+      }
+      
+      const shapeData = THEME_SHAPE_LAYOUTS[actualThemeId]
+      if (!shapeData) {
+        console.error(`[错误] 找不到主题 ${actualThemeId} 的特色地形布局`)
+        return false
+      }
+      
+      // 更新选中的主题ID为实际使用的主题
+      this.selectedThemeId = actualThemeId
+      
+      const layout = shapeData.layout
+      this.map.width = layout[0].length
+      this.map.height = layout.length
+      this.map.size = Math.max(this.map.width, this.map.height)
+      this.map.isSingleRow = false
+      this.map.shapeLayout = layout  // 保存布局数据
+      this.map.isShapeMap = true     // 标记为特色地形地图
+      
+      // 设置玩家起始位置
+      if (shapeData.player1Start) {
+        this.playerStates[0].position = { ...shapeData.player1Start }
+      } else {
+        this.playerStates[0].position = { x: 0, y: 0 }
+      }
+      
+      if (shapeData.player2Start) {
+        this.playerStates[1].position = { ...shapeData.player2Start }
+      } else {
+        this.playerStates[1].position = { x: this.map.width - 1, y: this.map.height - 1 }
+      }
+      
+      console.log(`[配置] 房主设置特色地形地图: ${themeId} (${this.map.width}x${this.map.height})`)
+      
+      // 特色地形：不可用的格子作为边界障碍物（标记为isBoundary）
+      this.map.obstacles = []
+      for (let y = 0; y < layout.length; y++) {
+        for (let x = 0; x < layout[y].length; x++) {
+          if (layout[y][x] === 0) {
+            this.map.obstacles.push({ x, y, isBoundary: true })
+          }
+        }
+      }
+      console.log(`[配置] 特色地形边界障碍物数量: ${this.map.obstacles.length}`)
+      
+      // 在有效区域内随机生成普通障碍物
+      this.generateShapeMapObstacles(layout)
+    } else if (typeof size === 'string' && size.startsWith('1x')) {
       // 单行地图格式: '1x5', '1x7', '1x10'
       const width = parseInt(size.split('x')[1])
       this.map.width = width
       this.map.height = 1
       this.map.size = width  // 兼容旧代码
       this.map.isSingleRow = true
+      this.map.shapeLayout = null
+      this.map.isShapeMap = false
       
       // 单行地图：玩家1在左侧，玩家2在右侧
       this.playerStates[0].position = { x: 0, y: 0 }
       this.playerStates[1].position = { x: width - 1, y: 0 }
       
       console.log(`[配置] 房主设置单行地图: ${size}`)
+      
+      // 重新生成障碍物
+      this.map.obstacles = this.generateObstacles()
     } else {
+      // 验证地图大小是否在允许范围内
+      if (!GAME_CONFIG.MAP_SIZE_OPTIONS.includes(size)) {
+        console.error(`[错误] 无效的地图大小: ${size}`)
+        return false
+      }
+      
       // 正方形地图
       this.map.width = size
       this.map.height = size
       this.map.size = size
       this.map.isSingleRow = false
+      this.map.shapeLayout = null
+      this.map.isShapeMap = false
       
       // 正方形地图：玩家在对角
       this.playerStates[0].position = { x: 0, y: 0 }
       this.playerStates[1].position = { x: size - 1, y: size - 1 }
       
       console.log(`[配置] 房主设置正方形地图: ${size}x${size}`)
+      
+      // 重新生成障碍物
+      this.map.obstacles = this.generateObstacles()
     }
-    
-    // 重新生成障碍物
-    this.map.obstacles = this.generateObstacles()
     
     // 通知双方配置完成
     this.io?.to(this.roomCode).emit('map_configured', {
@@ -377,11 +607,14 @@ class Match {
     console.log(`[游戏] 先手玩家: ${this.isPlayer1Priority ? '玩家1' : '玩家2'}`)
     this.phase = GAME_PHASES.DEALING
     
-    // 随机选择地图主题
-    const randomThemeIndex = Math.floor(Math.random() * THEME_LIST.length)
-    const themeId = THEME_LIST[randomThemeIndex]
-    this.theme = MAP_THEMES[themeId]
-    console.log(`[游戏] 随机选择地图主题: ${this.theme.nameCn}`)
+    // 使用指定的主题，如果是'random'则随机选择
+    let selectedThemeId = this.selectedThemeId || 'random'
+    if (selectedThemeId === 'random' || !MAP_THEMES[selectedThemeId]) {
+      const randomThemeIndex = Math.floor(Math.random() * THEME_LIST.length)
+      selectedThemeId = THEME_LIST[randomThemeIndex]
+    }
+    this.theme = MAP_THEMES[selectedThemeId]
+    console.log(`[游戏] 地图主题: ${this.theme.nameCn} (选择: ${this.selectedThemeId || 'random'})`)
     
     // 为每个障碍物随机分配类型
     this.map.obstacles = this.map.obstacles.map(obs => ({
@@ -425,22 +658,71 @@ class Match {
     this.playerStates[1].selectedCards = []
     this.playerStates[1].orderConfirmed = false
     
-    // 分别发送卡牌给两位玩家
-    this.io?.to(this.playerStates[0].id).emit('deal_cards', {
-      cards: this.playerStates[0].currentCards,
-      isPriority: priorityIndex === 0,
-      opponentFirstCard: null
+    // ========== 处理主动技能牌 ==========
+    // 为拥有主动技能且冷却完毕的玩家添加技能牌
+    for (let i = 0; i < 2; i++) {
+      const player = this.playerStates[i]
+      if (player.skill && player.skill.skillType === 'active' && player.skillCooldown === 0) {
+        // 添加技能牌到可选卡牌
+        const skillCard = {
+          id: `skill_${player.skill.id}_${Date.now()}`,
+          type: 'skill',
+          skillId: player.skill.id,
+          name: player.skill.skillName,
+          icon: player.skill.skillIcon,
+          description: player.skill.description,
+          cooldown: player.skill.cooldown,
+          isSkillCard: true
+        }
+        player.currentCards.push(skillCard)
+        console.log(`[技能] 玩家${i + 1}的主动技能牌【${player.skill.skillName}】已加入可选牌池`)
+      }
+    }
+    
+    // 先发送回合开始事件给双方（显示"进入第X回合"提示）
+    this.io?.to(this.roomCode).emit('round_start', {
+      round: this.currentRound
     })
     
-    this.io?.to(this.playerStates[1].id).emit('deal_cards', {
-      cards: this.playerStates[1].currentCards,
-      isPriority: priorityIndex === 1,
-      opponentFirstCard: null
-    })
+    console.log(`[回合] 第${this.currentRound}回合开始，通知双方显示回合提示`)
     
-    console.log(`[发牌] 发给两名玩家相同的6张牌`)
+    // 2秒后给先手玩家发送卡牌（等待回合提示完全消失）
+    setTimeout(() => {
+      this.io?.to(this.playerStates[priorityIndex].id).emit('deal_cards', {
+        cards: this.playerStates[priorityIndex].currentCards,
+        isPriority: true,
+        opponentFirstCard: null,
+        // 双方技能信息（用于显示双方的技能卡牌）
+        player1Skill: this.playerStates[0].skill,
+        player1SkillCooldown: this.playerStates[0].skillCooldown,
+        player2Skill: this.playerStates[1].skill,
+        player2SkillCooldown: this.playerStates[1].skillCooldown
+      })
+      
+      console.log(`[发牌] 发给先手玩家(玩家${priorityIndex + 1})`)
+    }, 2000)
     
     this.phase = GAME_PHASES.SELECTING_PRIORITY
+  }
+  
+  // 为后手玩家发牌
+  dealCardsToNormalPlayer() {
+    const priorityIndex = this.isPlayer1Priority ? 0 : 1
+    const normalIndex = 1 - priorityIndex
+    
+      // 给后手玩家发送卡牌
+      this.io?.to(this.playerStates[normalIndex].id).emit('deal_cards', {
+        cards: this.playerStates[normalIndex].currentCards,
+        isPriority: false,
+        opponentFirstCard: null,
+        // 双方技能信息（用于显示双方的技能卡牌）
+        player1Skill: this.playerStates[0].skill,
+        player1SkillCooldown: this.playerStates[0].skillCooldown,
+        player2Skill: this.playerStates[1].skill,
+        player2SkillCooldown: this.playerStates[1].skillCooldown
+      })
+      
+      console.log(`[发牌] 发给后手玩家(玩家${normalIndex + 1})`)
   }
   
   // 生成指定数量的卡牌（两名玩家相同的牌）
@@ -657,6 +939,18 @@ class Match {
       return false
     }
     
+    // 检查探查牌重复：同类型探查牌不能出现2张或更多
+    const scoutCounts = {}
+    for (const card of cards) {
+      if (card.type === 'scout') {
+        scoutCounts[card.name] = (scoutCounts[card.name] || 0) + 1
+        if (scoutCounts[card.name] >= 2) {
+          console.log(`[验证] ${card.name}探查牌重复(${scoutCounts[card.name]}张)，重新生成`)
+          return false
+        }
+      }
+    }
+    
     // 检查同一方向的卡牌数量：不能超过2张
     const directionCounts = {}
     for (const card of cards) {
@@ -791,25 +1085,35 @@ class Match {
     return true
   }
   
-  // 选择卡牌
-  selectCards(socketId, selectedCards) {
+  // 选择卡牌（统一处理技能牌和普通牌）
+  selectCards(socketId, selectedCardIndices) {
     const index = this.getPlayerIndex(socketId)
     if (index === -1) return
     
     const player = this.playerStates[index]
     
-    // 验证选牌数量
-    if (selectedCards.length !== GAME_CONFIG.HAND_SIZE) {
-      console.error(`[错误] 玩家${index + 1}选择了${selectedCards.length}张牌，应该选择${GAME_CONFIG.HAND_SIZE}张`)
+    // 验证选牌数量：统一要求3张（技能牌和普通牌一起计算）
+    if (selectedCardIndices.length !== 3) {
+      console.error(`[错误] 玩家${index + 1}选择了${selectedCardIndices.length}张牌，应该选择3张`)
       return
     }
     
+    // 根据索引从 currentCards 获取实际卡牌对象
+    const handCards = selectedCardIndices.map(i => player.currentCards[i]).filter(c => c)
+    
+    // 检查是否选中了技能牌
+    const hasSkillCard = handCards.some(c => c && c.isSkillCard)
+    if (hasSkillCard) {
+      player.skillSelected = true
+      console.log(`[技能] 玩家${index + 1}选中了技能牌`)
+    }
+    
     // 将选中的牌设置为手牌
-    player.selectedCards = selectedCards
-    player.handCards = [...selectedCards]
+    player.selectedCards = selectedCardIndices
+    player.handCards = handCards
     player.currentCards = []
     
-    console.log(`[选择] 玩家${index + 1}选择了卡牌:`, selectedCards.map(c => c.name))
+    console.log(`[选择] 玩家${index + 1}选择了卡牌:`, handCards.map(c => c.name))
     
     const priorityIndex = this.isPlayer1Priority ? 0 : 1
     
@@ -859,20 +1163,78 @@ class Match {
     const priorityIndex = this.isPlayer1Priority ? 0 : 1
     
     if (index === priorityIndex) {
-      // 先手玩家确认完毕，通知后手玩家选择要查看的手牌
+      // 先手玩家确认完毕，给后手玩家发牌
       this.priorityOrderComplete = true
-      this.phase = GAME_PHASES.SELECTING_NORMAL
       
       const normalIndex = 1 - priorityIndex
       const handCards = this.playerStates[priorityIndex].handCards
       
-      // 通知后手玩家选择要查看先手的第一张还是最后一张牌
-      this.io?.to(this.playerStates[normalIndex].id).emit('choose_opponent_card_to_view', {
-        firstCard: handCards[0] || null,
-        lastCard: handCards[handCards.length - 1] || null
+      console.log(`[顺序] 先手确认完毕，给后手发牌并通知选择查看`)
+      
+      // 递增后手玩家的后手回合计数（必须先递增，再检查触发条件）
+      this.playerStates[normalIndex].normalTurnsCount = (this.playerStates[normalIndex].normalTurnsCount || 0) + 1
+      console.log(`[隔墙有眼] 后手玩家(玩家${normalIndex + 1})后手回合计数: ${this.playerStates[normalIndex].normalTurnsCount}`)
+      
+      // ========== 女盗贼被动技能：隔墙有眼 ==========
+      // 在先手玩家确认顺序后，检查后手玩家是否是女盗贼
+      const normalPlayer = this.playerStates[normalIndex]
+      const wallSkillTriggered = normalPlayer.skill && normalPlayer.skill.id === 'thief_female' && this.shouldTriggerWallSkill(normalIndex)
+      
+      // 获取先手玩家的第一张和最后一张手牌
+      const firstCard = handCards[0] || null
+      const lastCard = handCards[handCards.length - 1] || null
+      
+      if (wallSkillTriggered) {
+        // 标记本次触发了技能，用于跳过观看手牌阶段
+        this.wallSkillTriggeredThisRound = true
+        console.log(`[隔墙有眼] 女盗贼技能触发！将在发牌时直接发送对手手牌信息`)
+        // 不再延迟触发，而是直接在 deal_cards 事件中发送手牌信息
+      } else {
+        this.wallSkillTriggeredThisRound = false
+      }
+      
+      // 给后手玩家发送卡牌，不显示回合过渡界面
+      // 如果女盗贼技能触发，直接在发牌事件中发送对手的第一张和最后一张手牌
+      this.io?.to(this.playerStates[normalIndex].id).emit('deal_cards', {
+        cards: this.playerStates[normalIndex].currentCards,
+        isPriority: false,
+        opponentFirstCard: null,
+        showRoundTransition: false,  // 后手玩家不显示回合过渡界面
+        // 女盗贼技能触发时，直接发送对手的第一张和最后一张手牌
+        wallSkillTriggered: wallSkillTriggered,
+        opponentFirstAndLastCard: wallSkillTriggered ? {
+          firstCard: firstCard ? { id: firstCard.id, name: firstCard.name, icon: firstCard.icon, type: firstCard.type } : null,
+          lastCard: lastCard ? { id: lastCard.id, name: lastCard.name, icon: lastCard.icon, type: lastCard.type } : null,
+          totalCards: handCards.length
+        } : null,
+        // 技能冷却信息（修复后手玩家CD显示不同步问题）
+        player1Skill: this.playerStates[0].skill,
+        player1SkillCooldown: this.playerStates[0].skillCooldown,
+        player2Skill: this.playerStates[1].skill,
+        player2SkillCooldown: this.playerStates[1].skillCooldown
       })
       
-      console.log(`[顺序] 先手确认完毕，通知后手选择查看第一张或最后一张牌`)
+      console.log(`[发牌] 发给后手玩家(玩家${normalIndex + 1})，不显示回合过渡`)
+      
+      // 通知后手玩家选择要查看先手的第一张还是最后一张牌（延迟发送，等发牌动画完成）
+      // 如果女盗贼技能已触发，则跳过观看手牌阶段
+      if (!this.wallSkillTriggeredThisRound) {
+        setTimeout(() => {
+          this.io?.to(this.playerStates[normalIndex].id).emit('choose_opponent_card_to_view', {
+            firstCard: handCards[0] || null,
+            lastCard: handCards[handCards.length - 1] || null,
+            isFirstRound: this.currentRound === 1  // 是否第一回合
+          })
+          console.log(`[顺序] 通知后手选择查看第一张或最后一张牌`)
+        }, 1200)  // 等待发牌动画完成（约1秒）
+      } else {
+        console.log(`[顺序] 女盗贼技能已触发，跳过观看手牌阶段`)
+        // 直接进入选牌阶段，不发 choose_opponent_card_to_view
+        // 延迟让发牌动画完成后再进入选牌阶段
+        setTimeout(() => {
+          this.phase = GAME_PHASES.SELECTING_NORMAL
+        }, 1500)
+      }
       
       // 通知先手玩家能看到后手玩家的第一张牌（当后手选完牌后会有值）
       this.io?.to(this.playerStates[priorityIndex].id).emit('opponent_first_card_visible', {
@@ -880,23 +1242,45 @@ class Match {
       })
       
     } else {
-      // 后手玩家确认顺序完毕，开始出牌阶段
-      this.phase = GAME_PHASES.PLAYING
-      this.turnIndex = 0
-      console.log(`[出牌] 开始出牌阶段`)
-      console.log(`[出牌] 先手玩家: ${this.isPlayer1Priority ? '玩家1' : '玩家2'}`)
-      console.log(`[出牌] 玩家1手牌:`, this.playerStates[0].handCards.map(c => c.name))
-      console.log(`[出牌] 玩家2手牌:`, this.playerStates[1].handCards.map(c => c.name))
+      // 后手玩家确认顺序完毕
       
-      // 发送完整状态给所有玩家，包括各自的手牌
-      const state = this.getState()
-      state.player1Hand = this.playerStates[0].handCards
-      state.player2Hand = this.playerStates[1].handCards
+      // ========== 被动技能触发（出牌阶段开始前）==========
+      // 天降箭雨等被动技能在此触发，特效播放完毕后再开始出牌
+      console.log(`[被动技能] 出牌阶段开始前，检查双方被动技能...`)
       
-      // 通知先手玩家可以出牌
-      this.io?.to(this.playerStates[priorityIndex].id).emit('your_turn_to_play')
+      let hasPassiveSkill = false
       
-      this.io?.to(this.roomCode).emit('all_orders_complete', state)
+      for (let i = 0; i < 2; i++) {
+        const player = this.playerStates[i]
+        if (player.skill && player.skill.skillType === 'passive') {
+          hasPassiveSkill = true
+          console.log(`[被动技能] 玩家${i + 1}的被动技能: ${player.skill.id}`)
+          this.processPassiveSkill(i)
+        }
+      }
+      
+      // 延迟2秒让被动技能特效播放完毕，再开始出牌阶段
+      const delayTime = hasPassiveSkill ? 2000 : 0
+      
+      setTimeout(() => {
+        // 开始出牌阶段
+        this.phase = GAME_PHASES.PLAYING
+        this.turnIndex = 0
+        console.log(`[出牌] 开始出牌阶段`)
+        console.log(`[出牌] 先手玩家: ${this.isPlayer1Priority ? '玩家1' : '玩家2'}`)
+        console.log(`[出牌] 玩家1手牌:`, this.playerStates[0].handCards.map(c => c.name))
+        console.log(`[出牌] 玩家2手牌:`, this.playerStates[1].handCards.map(c => c.name))
+        
+        // 发送完整状态给所有玩家，包括各自的手牌
+        const state = this.getState()
+        state.player1Hand = this.playerStates[0].handCards
+        state.player2Hand = this.playerStates[1].handCards
+        
+        // 通知先手玩家可以出牌
+        this.io?.to(this.playerStates[priorityIndex].id).emit('your_turn_to_play')
+        
+        this.io?.to(this.roomCode).emit('all_orders_complete', state)
+      }, delayTime)
     }
   }
   
@@ -1004,7 +1388,7 @@ class Match {
     const player = this.playerStates[playerIndex]
     
     // 如果打出的是非防御牌，清除该玩家的防御状态
-    if (card.type !== 'defense' && player.isDefending) {
+    if (card.type !== 'defense' && card.type !== 'skill' && player.isDefending) {
       player.isDefending = false
       // 发送防御失效事件（让客户端清除护盾特效）
       this.io?.to(this.roomCode).emit('defense_expired', {
@@ -1017,7 +1401,10 @@ class Match {
       })
     }
     
-    if (card.type === 'move') {
+    if (card.type === 'skill') {
+      // 执行技能
+      this.executeSkill(playerIndex, card)
+    } else if (card.type === 'move') {
       this.executeMove(playerIndex, card.direction)
     } else if (card.type === 'attack') {
       this.executeAttack(playerIndex, card.direction, card.range)
@@ -1037,6 +1424,367 @@ class Match {
     }
   }
   
+  // ========== 技能执行方法 ==========
+  
+  // 执行技能
+  executeSkill(playerIndex, card) {
+    const player = this.playerStates[playerIndex]
+    const skillId = card.skillId
+    
+    // 设置冷却
+    if (player.skill && player.skill.cooldown) {
+      player.skillCooldown = player.skill.cooldown
+    }
+    player.skillSelected = true
+    
+    console.log(`[技能] 玩家${playerIndex + 1}使用技能: ${skillId}`)
+    
+    // 根据技能ID执行对应效果
+    switch (skillId) {
+      case 'mage_male':
+        this.executeMeteorSkill(playerIndex)
+        break
+      case 'knight_male':
+        this.executeWhirlwindSkill(playerIndex)
+        break
+      case 'reader_male':
+        this.executeHistorySkill(playerIndex)
+        break
+      case 'archer_male':
+        this.executePierceSkill(playerIndex)
+        break
+      case 'thief_male':
+        this.executeStealSkill(playerIndex, card)
+        break
+      default:
+        console.log(`[技能] 未知技能ID: ${skillId}`)
+    }
+  }
+  
+  // 男法师 - 天降陨石：攻击对手，造成 m=ceil(sqrt(面积)/2) 点伤害
+  executeMeteorSkill(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    const opponent = this.playerStates[1 - playerIndex]
+    
+    // 计算陨石数量：m = ceil(sqrt(面积)/2)
+    const area = this.map.width * this.map.height
+    const m = Math.ceil(Math.sqrt(area) / 2)
+    
+    console.log(`[技能] 天降陨石: 地图面积=${area}, 陨石数量=${m}`)
+    
+    // 生成所有可攻击的格子（排除边界）
+    const validCells = []
+    for (let x = 0; x < this.map.width; x++) {
+      for (let y = 0; y < this.map.height; y++) {
+        // 排除边界障碍物
+        const isBoundary = this.map.obstacles?.some(o => o.x === x && o.y === y && o.isBoundary)
+        if (!isBoundary) {
+          validCells.push({ x, y })
+        }
+      }
+    }
+    
+    // 随机选择 m 个不重复的格子
+    const targetCells = []
+    const shuffled = [...validCells].sort(() => Math.random() - 0.5)
+    for (let i = 0; i < Math.min(m, shuffled.length); i++) {
+      targetCells.push(shuffled[i])
+    }
+    
+    console.log(`[技能] 天降陨石: 目标格子`, targetCells)
+    
+    // 发送技能特效（多个目标）
+    this.io?.to(this.roomCode).emit('skill_effect', {
+      skillId: 'mage_male_meteor',
+      playerIndex: playerIndex,
+      targetCells: targetCells
+    })
+    
+    // 对每个目标格子进行处理
+    for (const cell of targetCells) {
+      // 检查是否命中玩家
+      if (opponent.position.x === cell.x && opponent.position.y === cell.y) {
+        // 命中对手
+        if (opponent.isDefending) {
+          opponent.isDefending = false
+          this.io?.to(this.roomCode).emit('defense_broken', {
+            playerIndex: 1 - playerIndex
+          })
+          this.io?.to(this.roomCode).emit('game_message', {
+            message: `☄️ 天降陨石命中玩家${1 - playerIndex + 1}，但被防御！`,
+            type: 'warning'
+          })
+        } else {
+          opponent.hp -= 1
+          this.io?.to(this.roomCode).emit('game_message', {
+            message: `☄️ 天降陨石命中玩家${1 - playerIndex + 1}！血量-1`,
+            type: 'error'
+          })
+        }
+      }
+      // 注意：陨石不会攻击施法者自身（已排除）
+      {
+        // 检查是否命中障碍物
+        const obstacleIndex = this.map.obstacles?.findIndex(o => o.x === cell.x && o.y === cell.y && !o.isBoundary)
+        if (obstacleIndex !== -1 && obstacleIndex !== undefined) {
+          // 摧毁障碍物
+          const destroyedObstacle = this.map.obstacles.splice(obstacleIndex, 1)[0]
+          this.io?.to(this.roomCode).emit('obstacle_destroyed', {
+            position: { x: cell.x, y: cell.y },
+            obstacle: destroyedObstacle
+          })
+          this.io?.to(this.roomCode).emit('game_message', {
+            message: `☄️ 天降陨石摧毁了障碍物！`,
+            type: 'success'
+          })
+          console.log(`[技能] 天降陨石: 摧毁障碍物(${cell.x}, ${cell.y})`)
+        }
+        
+        // 检查是否命中传送门
+        const portalIndex = this.map.portals?.findIndex(p => 
+          (p.entry.x === cell.x && p.entry.y === cell.y) || 
+          (p.exit.x === cell.x && p.exit.y === cell.y)
+        )
+        if (portalIndex !== -1 && portalIndex !== undefined) {
+          // 成对摧毁传送门（入口和出口）
+          const destroyedPortal = this.map.portals.splice(portalIndex, 1)[0]
+          this.io?.to(this.roomCode).emit('portal_destroyed', {
+            position: { x: cell.x, y: cell.y },
+            portal: destroyedPortal
+          })
+          this.io?.to(this.roomCode).emit('game_message', {
+            message: `☄️ 天降陨石摧毁了传送门！`,
+            type: 'success'
+          })
+          console.log(`[技能] 天降陨石: 摧毁传送门`, destroyedPortal)
+        }
+      }
+    }
+    
+    // 检查游戏结束
+    this.checkGameEnd()
+  }
+  
+  // 男骑士 - 旋风斩：攻击周围8格的所有敌人
+  executeWhirlwindSkill(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    const opponent = this.playerStates[1 - playerIndex]
+    
+    // 8个方向偏移
+    const directions = [
+      { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 },
+      { dx: -1, dy: 0 },                   { dx: 1, dy: 0 },
+      { dx: -1, dy: 1 },  { dx: 0, dy: 1 },  { dx: 1, dy: 1 }
+    ]
+    
+    // 检查对手是否在周围8格
+    const dx = opponent.position.x - player.position.x
+    const dy = opponent.position.y - player.position.y
+    const isInRange = directions.some(d => d.dx === dx && d.dy === dy)
+    
+    // 发送技能特效
+    this.io?.to(this.roomCode).emit('skill_effect', {
+      skillId: 'knight_male_whirlwind',
+      playerIndex: playerIndex,
+      position: player.position
+    })
+    
+    if (isInRange) {
+      // 检查防御
+      if (opponent.isDefending) {
+        opponent.isDefending = false
+        this.io?.to(this.roomCode).emit('defense_broken', {
+          playerIndex: 1 - playerIndex
+        })
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `🌀 旋风斩被防御！玩家${1 - playerIndex + 1}防御破碎`,
+          type: 'warning'
+        })
+      } else {
+        opponent.hp -= 1
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `🌀 旋风斩命中！玩家${1 - playerIndex + 1}受到1点伤害`,
+          type: 'error'
+        })
+      }
+      this.checkGameEnd()
+    } else {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `🌀 旋风斩释放！但对手不在攻击范围内`,
+        type: 'info'
+      })
+    }
+  }
+  
+  // 记录历史视野（男阅读者技能用）
+  recordHistoryVision(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    const opponent = this.playerStates[1 - playerIndex]
+    
+    // 计算当前位置的视野范围（与迷雾系统一致）
+    const visionRange = 2  // 视野范围：周围2格
+    const visionCells = []
+    
+    for (let dx = -visionRange; dx <= visionRange; dx++) {
+      for (let dy = -visionRange; dy <= visionRange; dy++) {
+        const targetX = player.position.x + dx
+        const targetY = player.position.y + dy
+        
+        // 检查边界
+        if (targetX < 0 || targetX >= this.map.width || 
+            targetY < 0 || targetY >= this.map.height) {
+          continue
+        }
+        
+        // 检查是否为边界障碍物（特色地形地图的边界）
+        const isBoundary = this.map.obstacles.some(o => o.x === targetX && o.y === targetY && o.isBoundary)
+        if (isBoundary) {
+          continue
+        }
+        
+        visionCells.push({ x: targetX, y: targetY })
+      }
+    }
+    
+    // 将新视野格子添加到历史记录（去重）
+    for (const cell of visionCells) {
+      const exists = player.historyVision.some(v => v.x === cell.x && v.y === cell.y)
+      if (!exists) {
+        player.historyVision.push(cell)
+      }
+    }
+    
+    console.log(`[历史视野] 玩家${playerIndex + 1}记录视野: +${visionCells.length}格, 总计: ${player.historyVision.length}格`)
+  }
+  
+  // 男阅读者 - 回忆过去：查看历史视野覆盖过的所有格子
+  executeHistorySkill(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    
+    // 获取自己的历史视野记录
+    const myHistoryVision = player.historyVision || []
+    
+    // 发送技能特效（看到自己曾经看到过的所有格子）
+    this.io?.to(this.playerStates[playerIndex].id).emit('skill_effect', {
+      skillId: 'reader_male_history',
+      playerIndex: playerIndex,
+      historyVision: myHistoryVision
+    })
+    
+    this.io?.to(this.roomCode).emit('game_message', {
+      message: `📖 玩家${playerIndex + 1}使用回忆过去，回顾了自己的历史视野区域`,
+      type: 'info'
+    })
+    
+    console.log(`[技能] 回忆过去: 玩家${playerIndex + 1}查看自己历史视野(${myHistoryVision.length}格)`)
+  }
+  
+  // 男弓箭手 - 百步穿杨：四向穿透攻击
+  executePierceSkill(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    const opponent = this.playerStates[1 - playerIndex]
+    
+    let hit = false
+    const directions = [
+      { dx: 0, dy: -1, name: '上' },
+      { dx: 0, dy: 1, name: '下' },
+      { dx: -1, dy: 0, name: '左' },
+      { dx: 1, dy: 0, name: '右' }
+    ]
+    
+    // 检查四个方向
+    for (const dir of directions) {
+      // 沿方向检查整条线
+      for (let i = 1; i < Math.max(this.map.width, this.map.height); i++) {
+        const targetX = player.position.x + dir.dx * i
+        const targetY = player.position.y + dir.dy * i
+        
+        // 检查边界
+        if (targetX < 0 || targetX >= this.map.width || 
+            targetY < 0 || targetY >= this.map.height) {
+          break
+        }
+        
+        // 检查是否命中对手（穿透障碍）
+        if (opponent.position.x === targetX && opponent.position.y === targetY) {
+          hit = true
+          break
+        }
+      }
+      if (hit) break
+    }
+    
+    // 发送技能特效
+    this.io?.to(this.roomCode).emit('skill_effect', {
+      skillId: 'archer_male_pierce',
+      playerIndex: playerIndex,
+      position: player.position
+    })
+    
+    if (hit) {
+      if (opponent.isDefending) {
+        opponent.isDefending = false
+        this.io?.to(this.roomCode).emit('defense_broken', {
+          playerIndex: 1 - playerIndex
+        })
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `🏹 百步穿杨被防御！玩家${1 - playerIndex + 1}防御破碎`,
+          type: 'warning'
+        })
+      } else {
+        opponent.hp -= 1
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `🏹 百步穿杨命中！穿透障碍击中玩家${1 - playerIndex + 1}`,
+          type: 'error'
+        })
+      }
+      this.checkGameEnd()
+    } else {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `🏹 百步穿杨释放！但四向均无敌人`,
+        type: 'info'
+      })
+    }
+  }
+  
+  // 男盗贼 - 盗为己用：复制对手最后一张牌并使其无效
+  executeStealSkill(playerIndex, card) {
+    const opponent = this.playerStates[1 - playerIndex]
+    const opponentHand = opponent.handCards
+    
+    // 获取对手最后一张牌
+    const lastCard = opponentHand[opponentHand.length - 1]
+    
+    if (!lastCard) {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `🗡️ 盗为己用失败！对手没有可偷的牌`,
+        type: 'warning'
+      })
+      return
+    }
+    
+    // 发送技能特效
+    this.io?.to(this.roomCode).emit('skill_effect', {
+      skillId: 'thief_male_steal',
+      playerIndex: playerIndex,
+      stolenCard: lastCard
+    })
+    
+    // 标记对手最后一张牌为无效（将在出牌时跳过）
+    lastCard.invalidated = true
+    
+    // 将偷来的牌加入玩家手牌（立即执行效果）
+    this.io?.to(this.roomCode).emit('game_message', {
+      message: `🗡️ 盗为己用！偷取并复制对手的【${lastCard.name}】，对手的牌无效`,
+      type: 'success'
+    })
+    
+    // 执行偷来的牌的效果
+    setTimeout(() => {
+      this.executeCard(playerIndex, { ...lastCard, id: `stolen_${lastCard.id}` })
+    }, 1000)
+  }
+  
   // 执行移动
   executeMove(playerIndex, direction) {
     const player = this.playerStates[playerIndex]
@@ -1048,8 +1796,8 @@ class Match {
     // 记录旧位置用于特效
     const oldPos = { x: player.position.x, y: player.position.y }
     
-    // 检查边界
-    if (newX < 0 || newX >= this.map.size || newY < 0 || newY >= this.map.size) {
+    // 检查边界（使用正确的地图尺寸）
+    if (newX < 0 || newX >= this.map.width || newY < 0 || newY >= this.map.height) {
       // 超出边界，发送私密提示（只给操作者）
       this.io?.to(this.playerStates[playerIndex].id).emit('private_message', {
         message: `无法移动：超出边界`,
@@ -1089,6 +1837,9 @@ class Match {
     player.position.x = newX
     player.position.y = newY
     
+    // ========== 记录历史视野（男阅读者技能用）==========
+    this.recordHistoryVision(playerIndex)
+    
     // 检查是否踩到传送门进口
     const portal = this.checkPortalEntry(player.position)
     if (portal) {
@@ -1107,23 +1858,30 @@ class Match {
     const opponent = this.playerStates[1 - playerIndex]
     const offset = DIRECTION_OFFSET[direction]
     
+    // ========== 女骑士攻击范围+1 ==========
+    let actualRange = range
+    if (player.skill && player.skill.id === 'knight_female') {
+      actualRange = range + 1
+      console.log(`[被动] 坚韧突刺：攻击范围+1，${range} → ${actualRange}`)
+    }
+    
     // 记录攻击路径（用于特效）
     const attackPath = [{ x: player.position.x, y: player.position.y }]
     
     // 逐格检查攻击路径
-    for (let i = 1; i <= range; i++) {
+    for (let i = 1; i <= actualRange; i++) {
       const targetX = player.position.x + offset.x * i
       const targetY = player.position.y + offset.y * i
       attackPath.push({ x: targetX, y: targetY })
       
-      // 检查边界
-      if (targetX < 0 || targetX >= this.map.size || targetY < 0 || targetY >= this.map.size) {
+      // 检查边界（使用正确的地图尺寸）
+      if (targetX < 0 || targetX >= this.map.width || targetY < 0 || targetY >= this.map.height) {
         // 超出边界，发送特效后返回
         this.io?.to(this.roomCode).emit('attack_effect', {
           from: player.position,
           to: { x: targetX, y: targetY },
           direction,
-          range,
+          range: actualRange,
           hit: false
         })
         // 私密提示（只给操作者）
@@ -1135,21 +1893,38 @@ class Match {
       }
       
       // 检查障碍
-      if (this.map.obstacles.some(o => o.x === targetX && o.y === targetY)) {
-        // 被障碍阻挡，发送特效和提示后返回
-        // 私密提示（只给操作者）
-        this.io?.to(this.playerStates[playerIndex].id).emit('private_message', {
-          message: `攻击被障碍阻挡！`,
-          type: 'warning'
-        })
-        this.io?.to(this.roomCode).emit('attack_effect', {
-          from: player.position,
-          to: { x: targetX, y: targetY },
-          direction,
-          range,
-          hit: false
-        })
-        return false
+      const obstacleIndex = this.map.obstacles.findIndex(o => o.x === targetX && o.y === targetY && !o.isBoundary)
+      if (obstacleIndex !== -1) {
+        // ========== 女法师爆裂攻击：摧毁障碍物 ==========
+        if (player.skill && player.skill.id === 'mage_female') {
+          // 移除障碍物
+          const destroyedObstacle = this.map.obstacles.splice(obstacleIndex, 1)[0]
+          this.io?.to(this.roomCode).emit('obstacle_destroyed', {
+            position: { x: targetX, y: targetY },
+            obstacle: destroyedObstacle
+          })
+          this.io?.to(this.roomCode).emit('game_message', {
+            message: `💥 爆裂攻击！玩家${playerIndex + 1}摧毁了障碍物`,
+            type: 'success'
+          })
+          console.log(`[被动] 爆裂攻击：摧毁障碍物(${targetX}, ${targetY})`)
+          // 继续攻击，不返回
+        } else {
+          // 被障碍阻挡，发送特效和提示后返回
+          // 私密提示（只给操作者）
+          this.io?.to(this.playerStates[playerIndex].id).emit('private_message', {
+            message: `攻击被障碍阻挡！`,
+            type: 'warning'
+          })
+          this.io?.to(this.roomCode).emit('attack_effect', {
+            from: player.position,
+            to: { x: targetX, y: targetY },
+            direction,
+            range: actualRange,
+            hit: false
+          })
+          return false
+        }
       }
       
       // 检查当前位置是否有对方玩家
@@ -1208,11 +1983,22 @@ class Match {
   executeScout(playerIndex, scoutType) {
     const player = this.playerStates[playerIndex]
     
+    // ========== 女阅读者被动：深度求索 ==========
+    // 环绕探查范围+1
+    let actualScoutType = scoutType
+    let scoutBonus = 0
+    
+    if (player.skill && player.skill.id === 'reader_female' && scoutType === 'around') {
+      scoutBonus = 1
+      console.log(`[被动] 深度求索：环绕探查范围+1`)
+    }
+    
     // 记录探查效果
     const scoutEffect = {
-      type: scoutType,
+      type: actualScoutType,
       position: { ...player.position },
-      playerIndex: playerIndex
+      playerIndex: playerIndex,
+      bonus: scoutBonus  // 探查范围加成
     }
     
     // 添加到玩家探查效果数组
@@ -1221,17 +2007,27 @@ class Match {
     // 只发给打出探查牌的玩家（私密效果，对手不可见）
     this.io?.to(this.playerStates[playerIndex].id).emit('scout_effect', {
       playerIndex: playerIndex,
-      scoutType: scoutType,
-      position: player.position
+      scoutType: actualScoutType,
+      position: player.position,
+      bonus: scoutBonus
     })
     
-    this.io?.to(this.roomCode).emit('game_message', {
-      message: `玩家${playerIndex + 1}使用了${scoutType === 'row' ? '行探查' : scoutType === 'col' ? '列探查' : '环绕探查'}`,
-      type: 'info',
-      playerIndex: playerIndex
-    })
+    // 如果有范围加成，发送特殊消息
+    if (scoutBonus > 0) {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `📖 玩家${playerIndex + 1}使用深度环绕探查（范围+1）`,
+        type: 'info',
+        playerIndex: playerIndex
+      })
+    } else {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `玩家${playerIndex + 1}使用了${scoutType === 'row' ? '行探查' : scoutType === 'col' ? '列探查' : '环绕探查'}`,
+        type: 'info',
+        playerIndex: playerIndex
+      })
+    }
     
-    console.log(`[探查] 玩家${playerIndex + 1}使用${scoutType}探查`)
+    console.log(`[探查] 玩家${playerIndex + 1}使用${scoutType}探查${scoutBonus > 0 ? '（范围+' + scoutBonus + '）' : ''}`)
     return true
   }
   
@@ -1331,13 +2127,237 @@ class Match {
     this.playerStates[1].selectedCards = []
     this.playerStates[1].orderConfirmed = false
     
+    // ========== 技能冷却处理 ==========
+    for (let i = 0; i < 2; i++) {
+      const player = this.playerStates[i]
+      
+      // 减少冷却
+      if (player.skillCooldown > 0) {
+        player.skillCooldown--
+        console.log(`[冷却] 玩家${i + 1}技能冷却: ${player.skillCooldown}`)
+      }
+      
+      // 重置技能选择状态
+      player.skillSelected = false
+      
+      // 注意：被动技能处理移到发牌前执行，避免特效被回合过渡动画遮挡
+    }
+    
     // 发送回合结束消息
     this.io?.to(this.roomCode).emit('round_end', this.getState())
     
     // 开始新回合，给先手玩家发牌
+    // 注意：被动技能（天降箭雨等）已移到后手确认顺序后触发（confirmOrder方法中）
     setTimeout(() => {
       this.dealCardsToPriorityPlayer()
     }, 100)
+  }
+  
+  // ========== 被动技能处理 ==========
+  
+  // 处理被动技能
+  processPassiveSkill(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    const skillId = player.skill.id
+    
+    switch (skillId) {
+      case 'archer_female':
+        // 女弓箭手 - 天降箭雨：回合开始时随机射箭
+        this.executeRainSkill(playerIndex)
+        break
+      case 'thief_female':
+        // 女盗贼 - 隔墙有眼：每2个后手回合查看对手手牌
+        // 此技能在后手玩家确认顺序时触发（confirmOrder中调用checkAndExecuteWallSkill）
+        // 这里不再处理
+        break
+      case 'mage_female':
+        // 女法师 - 爆裂攻击：攻击摧毁障碍物（在executeAttack中处理）
+        // 这里不需要回合开始处理
+        break
+      case 'knight_female':
+        // 女骑士 - 坚韧突刺：攻击范围+1，血量+1（已在setPlayer中处理血量）
+        // 这里不需要回合开始处理
+        break
+      case 'reader_female':
+        // 女阅读者 - 深度求索：环绕探查范围+1（在executeScout中处理）
+        // 这里不需要回合开始处理
+        break
+    }
+  }
+  
+  // 女弓箭手 - 天降箭雨：每回合出牌阶段开始时，随机在地图1个格子落下弓箭
+  // 若该格子为障碍物或传送门，则此次攻击无任何效果
+  executeRainSkill(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    
+    // 获取所有有效格子（排除边界障碍）
+    const validCells = []
+    for (let x = 0; x < this.map.width; x++) {
+      for (let y = 0; y < this.map.height; y++) {
+        // 排除边界障碍物
+        const isBoundary = this.map.obstacles?.some(o => o.x === x && o.y === y && o.isBoundary)
+        if (!isBoundary) {
+          validCells.push({ x, y })
+        }
+      }
+    }
+    
+    if (validCells.length === 0) {
+      console.log(`[被动] 天降箭雨: 无有效格子`)
+      return
+    }
+    
+    // 随机选择一个格子
+    const target = validCells[Math.floor(Math.random() * validCells.length)]
+    
+    // 检查目标格子是否为障碍物或传送门
+    const isObstacle = this.map.obstacles?.some(o => o.x === target.x && o.y === target.y && !o.isBoundary)
+    const isPortal = this.map.portals?.some(p => 
+      (p.entry.x === target.x && p.entry.y === target.y) ||
+      (p.exit.x === target.x && p.exit.y === target.y)
+    )
+    
+    console.log(`[被动] 天降箭雨: 玩家${playerIndex + 1}的目标格子(${target.x}, ${target.y}), 障碍物=${isObstacle}, 传送门=${isPortal}`)
+    
+    // 发送技能特效
+    this.io?.to(this.roomCode).emit('skill_effect', {
+      skillId: 'archer_female_arrow_rain',
+      playerIndex: playerIndex,
+      targetPosition: target,
+      isInvalid: isObstacle || isPortal  // 是否无效（命中障碍物或传送门）
+    })
+    
+    // 如果命中障碍物或传送门，无任何效果
+    if (isObstacle || isPortal) {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `🎯 天降箭雨落在障碍物/传送门上，无效果`,
+        type: 'info'
+      })
+      console.log(`[被动] 天降箭雨: 命中障碍物或传送门，无效果`)
+      return
+    }
+    
+    // 检查是否命中玩家
+    let hitPlayer = false
+    let hitPlayerIndex = -1
+    
+    for (let i = 0; i < 2; i++) {
+      const targetPlayer = this.playerStates[i]
+      if (targetPlayer.position.x === target.x && targetPlayer.position.y === target.y) {
+        hitPlayer = true
+        hitPlayerIndex = i
+        break
+      }
+    }
+    
+    if (hitPlayer) {
+      const hitPlayer = this.playerStates[hitPlayerIndex]
+      // 检查防御
+      if (hitPlayer.isDefending) {
+        hitPlayer.isDefending = false
+        this.io?.to(this.roomCode).emit('defense_broken', {
+          playerIndex: hitPlayerIndex
+        })
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `🎯 天降箭雨命中玩家${hitPlayerIndex + 1}，但被防御！`,
+          type: 'warning'
+        })
+      } else {
+        hitPlayer.hp -= 1
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `🎯 天降箭雨命中玩家${hitPlayerIndex + 1}！血量-1`,
+          type: 'error'
+        })
+        this.checkGameEnd()
+      }
+      console.log(`[被动] 天降箭雨: 命中玩家${hitPlayerIndex + 1}`)
+    } else {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `🎯 天降箭雨落在空地上`,
+        type: 'info'
+      })
+      console.log(`[被动] 天降箭雨: 落在空地，无命中`)
+    }
+  }
+  
+  // 检查女盗贼技能是否应该触发（每隔一个后手回合触发，即每2个后手回合触发1次）
+  shouldTriggerWallSkill(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    
+    // 只有后手玩家才会触发
+    const priorityIndex = this.isPlayer1Priority ? 0 : 1
+    if (playerIndex === priorityIndex) {
+      console.log(`[隔墙有眼] 玩家${playerIndex + 1}是先手，不触发技能`)
+      return false
+    }
+    
+    // 使用后手回合计数器（每2个后手回合触发1次）
+    // 计数器为奇数时触发：第1、3、5...个后手回合
+    const normalTurnsCount = player.normalTurnsCount || 0
+    const shouldTrigger = normalTurnsCount % 2 === 1
+    
+    console.log(`[隔墙有眼] 后手回合计数: ${normalTurnsCount}, 是否触发: ${shouldTrigger}`)
+    return shouldTrigger
+  }
+  
+  // 女盗贼 - 隔墙有眼：每2个后手回合自动查看对手的第一张和最后一张手牌
+  // 注意：此方法现在在后手玩家选牌阶段开始时调用（dealCardsToNormalPlayer中）
+  // 触发条件由 shouldTriggerWallSkill 方法判断
+  checkAndExecuteWallSkill(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    const opponent = this.playerStates[1 - playerIndex]
+    
+    console.log(`[调试] ====== 隔墙有眼开始执行 ======`)
+    console.log(`[调试] 执行对象: 玩家${playerIndex + 1}, 角色: ${player.avatar?.id || '未知'}`)
+    console.log(`[调试] 对手: 玩家${1 - playerIndex + 1}, 角色: ${opponent.avatar?.id || '未知'}`)
+    
+    // 获取对手已确认的手牌
+    const opponentHandCards = opponent.handCards || []
+    
+    // 获取第一张和最后一张手牌
+    const firstCard = opponentHandCards.length > 0 ? opponentHandCards[0] : null
+    const lastCard = opponentHandCards.length > 1 ? opponentHandCards[opponentHandCards.length - 1] : null
+    
+    console.log(`[调试] 对手手牌数量: ${opponentHandCards.length}`)
+    console.log(`[调试] 对手所有手牌: ${JSON.stringify(opponentHandCards.map(c => ({ id: c.id, name: c.name })))}`)
+    console.log(`[调试] 第一张牌: ${firstCard ? JSON.stringify({ id: firstCard.id, name: firstCard.name, icon: firstCard.icon }) : '无'}`)
+    console.log(`[调试] 最后一张牌: ${lastCard ? JSON.stringify({ id: lastCard.id, name: lastCard.name, icon: lastCard.icon }) : '无'}`)
+    
+    // 返回要查看的手牌信息
+    const revealedCards = {
+      firstCard: firstCard ? { id: firstCard.id, name: firstCard.name, icon: firstCard.icon, type: firstCard.type } : null,
+      lastCard: lastCard ? { id: lastCard.id, name: lastCard.name, icon: lastCard.icon, type: lastCard.type } : null,
+      totalCards: opponentHandCards.length
+    }
+    
+    console.log(`[调试] 准备发送的revealedCards: ${JSON.stringify(revealedCards)}`)
+    
+    // 发送技能特效（只有使用者能看到对手手牌）
+    const payload = {
+      skillId: 'thief_female_wall',
+      playerIndex: playerIndex,
+      revealedCards: revealedCards
+    }
+    console.log(`[调试] 发送skill_effect事件到玩家${playerIndex + 1}, payload: ${JSON.stringify(payload)}`)
+    this.io?.to(this.playerStates[playerIndex].id).emit('skill_effect', payload)
+    
+    this.io?.to(this.roomCode).emit('game_message', {
+      message: `👁️ 隔墙有眼触发！玩家${playerIndex + 1}窥视了对手的手牌`,
+      type: 'info'
+    })
+    
+    // 记录本次触发的回合数
+    player.wallSkillLastTriggeredRound = this.currentRound
+    
+    console.log(`[被动] 隔墙有眼触发完成，记录触发回合: ${this.currentRound}`)
+    
+    return revealedCards
+  }
+  
+  // 旧方法保留（回合结束时不调用，改为选牌阶段调用）
+  executeWallSkill(playerIndex) {
+    // 此方法已废弃，改为在dealCardsToNormalPlayer中调用checkAndExecuteWallSkill
+    console.log(`[被动] executeWallSkill已废弃，请在选牌阶段使用checkAndExecuteWallSkill`)
   }
   
   // 重置游戏（重新进入地图配置阶段）
@@ -1367,6 +2387,9 @@ class Match {
     this.playerStates[0].orderConfirmed = false
     this.playerStates[0].isDefending = false
     this.playerStates[0].currentCards = []
+    this.playerStates[0].skillCooldown = 0  // 重置技能冷却，确保新游戏技能可用
+    this.playerStates[0].skillSelected = false
+    this.playerStates[0].wallSkillLastTriggeredRound = -1  // 重置女盗贼技能触发记录
     
     this.playerStates[1].position = { x: GAME_CONFIG.MAP_SIZE - 1, y: GAME_CONFIG.MAP_SIZE - 1 }
     this.playerStates[1].hp = GAME_CONFIG.INITIAL_HP
@@ -1375,6 +2398,9 @@ class Match {
     this.playerStates[1].orderConfirmed = false
     this.playerStates[1].isDefending = false
     this.playerStates[1].currentCards = []
+    this.playerStates[1].skillCooldown = 0  // 重置技能冷却，确保新游戏技能可用
+    this.playerStates[1].skillSelected = false
+    this.playerStates[1].wallSkillLastTriggeredRound = -1  // 重置女盗贼技能触发记录
     
     console.log(`[游戏] 重置游戏，进入地图配置阶段`)
     
@@ -1499,13 +2525,23 @@ class Match {
         avatarId: p.avatarId,
         position: { ...p.position },
         hp: p.hp,
-        handCards: i === 0 ? p.handCards : (i === 1 ? p.handCards : [])
+        maxHp: GAME_CONFIG.INITIAL_HP + (p.skill?.bonusHp || 0),
+        handCards: i === 0 ? p.handCards : (i === 1 ? p.handCards : []),
+        // 技能相关状态
+        skill: p.skill,
+        skillCooldown: p.skillCooldown,
+        skillSelected: p.skillSelected
       })),
       turnIndex: this.turnIndex,
       winner: this.winner,
       isPlayer1Priority: this.isPlayer1Priority,
       player1AvatarId: this.playerStates[0].avatarId,
-      player2AvatarId: this.playerStates[1].avatarId
+      player2AvatarId: this.playerStates[1].avatarId,
+      // 技能状态（方便客户端直接访问）
+      player1Skill: this.playerStates[0].skill,
+      player2Skill: this.playerStates[1].skill,
+      player1SkillCooldown: this.playerStates[0].skillCooldown,
+      player2SkillCooldown: this.playerStates[1].skillCooldown
     }
   }
   
