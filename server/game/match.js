@@ -1362,6 +1362,32 @@ class Match {
     
     // 2. 延迟1.5秒后执行卡牌效果
     setTimeout(() => {
+      // 检查牌是否被无效化（男盗贼技能）
+      if (card.invalidated) {
+        console.log(`[出牌] 玩家${playerIndex + 1}的牌【${card.name}】已被无效化，跳过执行`)
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `玩家${playerIndex + 1}的【${card.name}】被无效化！`,
+          type: 'warning'
+        })
+        // 发送牌被打出但无效的事件
+        this.io?.to(this.roomCode).emit('card_invalidated', {
+          playerIndex: playerIndex,
+          card: card,
+          cardIndex: cardIndex
+        })
+        // 跳过执行，直接进入下一轮
+        this.turnIndex++
+        this.io?.to(this.roomCode).emit('turn_played', this.getState())
+        
+        // 检查回合是否结束
+        if (this.turnIndex >= GAME_CONFIG.HAND_SIZE * 2) {
+          setTimeout(() => {
+            this.endRound()
+          }, 2000)
+        }
+        return
+      }
+      
       // 执行卡牌效果
       this.executeCard(playerIndex, card)
       
@@ -1705,7 +1731,12 @@ class Match {
           break
         }
         
-        // 检查是否命中对手（穿透障碍）
+        // 检查障碍物（被阻挡则停止该方向搜索）
+        if (this.map.obstacles.some(o => o.x === targetX && o.y === targetY && !o.isBoundary)) {
+          break
+        }
+        
+        // 检查是否命中对手
         if (opponent.position.x === targetX && opponent.position.y === targetY) {
           hit = true
           break
@@ -1734,7 +1765,7 @@ class Match {
       } else {
         opponent.hp -= 1
         this.io?.to(this.roomCode).emit('game_message', {
-          message: `🏹 百步穿杨命中！穿透障碍击中玩家${1 - playerIndex + 1}`,
+          message: `🏹 百步穿杨命中！远距离击中玩家${1 - playerIndex + 1}`,
           type: 'error'
         })
       }
@@ -1747,41 +1778,41 @@ class Match {
     }
   }
   
-  // 男盗贼 - 盗为己用：复制对手最后一张牌并使其无效
+  // 男盗贼 - 盗为己用：复制对手第一张牌并使其无效
   executeStealSkill(playerIndex, card) {
     const opponent = this.playerStates[1 - playerIndex]
     const opponentHand = opponent.handCards
-    
-    // 获取对手最后一张牌
-    const lastCard = opponentHand[opponentHand.length - 1]
-    
-    if (!lastCard) {
+
+    // 获取对手第一张牌
+    const firstCard = opponentHand[0]
+
+    if (!firstCard) {
       this.io?.to(this.roomCode).emit('game_message', {
         message: `🗡️ 盗为己用失败！对手没有可偷的牌`,
         type: 'warning'
       })
       return
     }
-    
+
     // 发送技能特效
     this.io?.to(this.roomCode).emit('skill_effect', {
       skillId: 'thief_male_steal',
       playerIndex: playerIndex,
-      stolenCard: lastCard
+      stolenCard: firstCard
     })
-    
-    // 标记对手最后一张牌为无效（将在出牌时跳过）
-    lastCard.invalidated = true
-    
+
+    // 标记对手第一张牌为无效（将在出牌时跳过）
+    firstCard.invalidated = true
+
     // 将偷来的牌加入玩家手牌（立即执行效果）
     this.io?.to(this.roomCode).emit('game_message', {
-      message: `🗡️ 盗为己用！偷取并复制对手的【${lastCard.name}】，对手的牌无效`,
+      message: `🗡️ 盗为己用！偷取并复制对手的【${firstCard.name}】，对手的牌无效`,
       type: 'success'
     })
-    
+
     // 执行偷来的牌的效果
     setTimeout(() => {
-      this.executeCard(playerIndex, { ...lastCard, id: `stolen_${lastCard.id}` })
+      this.executeCard(playerIndex, { ...firstCard, id: `stolen_${firstCard.id}` })
     }, 1000)
   }
   
