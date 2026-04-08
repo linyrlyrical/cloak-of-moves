@@ -1,4 +1,5 @@
 import { GAME_CONFIG, CARD_TYPES, ALL_CARD_TYPES, DIRECTION_OFFSET, GAME_PHASES, MAP_THEMES, THEME_LIST, PORTAL_COLORS, PORTAL_COLOR_LIST, THEME_SHAPE_LAYOUTS, CHARACTER_SKILLS, getCharacterSkillById } from '../shared/constants.js'
+import { AIPlayer } from './aiPlayer.js'
 
 export class MatchManager {
   constructor() {
@@ -80,7 +81,9 @@ class Match {
       size: GAME_CONFIG.MAP_SIZE,    // 兼容旧代码
       isSingleRow: false,            // 是否为单行地图
       obstacles: [],
-      portals: []                    // 传送门数组
+      portals: [],                   // 传送门数组
+      grass: [],                     // 草丛数组（森林主题）
+      sandDunes: []                  // 可移动沙丘数组（沙漠主题）
     }
     this.map.obstacles = this.generateObstacles()
     
@@ -95,6 +98,7 @@ class Match {
         selectedCards: [],
         orderConfirmed: false,
         isDefending: false,
+        isHidden: false,   // 是否在草丛中隐藏
         currentCards: [],  // 当前回合可选择的牌
         scoutEffects: [],  // 探查效果数组
         // ========== 技能相关字段 ==========
@@ -114,6 +118,7 @@ class Match {
         selectedCards: [],
         orderConfirmed: false,
         isDefending: false,
+        isHidden: false,   // 是否在草丛中隐藏
         currentCards: [],  // 当前回合可选择的牌
         scoutEffects: [],  // 探查效果数组
         // ========== 技能相关字段 ==========
@@ -134,6 +139,16 @@ class Match {
     
     // 地图主题（游戏开始时随机选择）
     this.theme = null
+    
+    // 冰原寒流状态：本回合是否被冻结
+    this.frozenThisRound = false
+    
+    // 古城技能封印状态：技能是否被封印
+    this.skillSealed = false
+    
+    // ========== AI单人模式 ==========
+    this.isAIMatch = false
+    this.aiPlayer = null
   }
   
   // 生成障碍物（根据地图大小动态计算数量）
@@ -412,6 +427,242 @@ class Match {
     })
     
     console.log(`[传送门] 玩家${playerIndex + 1}从(${fromPos.x},${fromPos.y})传送到(${portal.exit.x},${portal.exit.y})`)
+    
+    // 更新隐藏状态
+    this.updateHiddenState(playerIndex)
+  }
+  
+  // 生成草丛（森林主题特色）
+  generateGrass() {
+    const width = this.map.width
+    const height = this.map.height
+    
+    // 确定有效区域（特色地形只在使用 layout=1 的格子生成）
+    let validCells = []
+    if (this.map.isShapeMap && this.map.shapeLayout) {
+      // 特色地形：只收集 layout=1 的格子
+      for (let y = 0; y < this.map.shapeLayout.length; y++) {
+        for (let x = 0; x < this.map.shapeLayout[y].length; x++) {
+          if (this.map.shapeLayout[y][x] === 1) {
+            validCells.push({ x, y })
+          }
+        }
+      }
+      console.log(`[草丛] 特色地形有效区域: ${validCells.length} 个格子`)
+    } else {
+      // 正方形地图：所有格子都有效
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          validCells.push({ x, y })
+        }
+      }
+    }
+    
+    // 计算草丛数量：有效区域面积的 1/6 ~ 1/5
+    const validArea = validCells.length
+    const count = Math.max(3, Math.min(Math.floor(validArea / 6), Math.floor(validArea / 5)))
+    
+    console.log(`[草丛] 地图 ${width}x${height}，有效区域 ${validArea} 格，计划生成 ${count} 个草丛`)
+    
+    // 禁止区域：障碍物位置、传送门位置、玩家初始位置
+    const forbidden = new Set()
+    
+    // 添加障碍物到禁止区域
+    this.map.obstacles.forEach(o => forbidden.add(`${o.x},${o.y}`))
+    console.log(`[草丛] 障碍物数量: ${this.map.obstacles.length}`)
+    
+    // 添加传送门位置到禁止区域
+    if (this.map.portals && this.map.portals.length > 0) {
+      this.map.portals.forEach(p => {
+        forbidden.add(`${p.entry.x},${p.entry.y}`)
+        forbidden.add(`${p.exit.x},${p.exit.y}`)
+      })
+      console.log(`[草丛] 传送门数量: ${this.map.portals.length}`)
+    }
+    
+    // 添加玩家初始位置到禁止区域
+    forbidden.add(`${this.playerStates[0].position.x},${this.playerStates[0].position.y}`)
+    forbidden.add(`${this.playerStates[1].position.x},${this.playerStates[1].position.y}`)
+    console.log(`[草丛] 玩家1位置: (${this.playerStates[0].position.x},${this.playerStates[0].position.y})`)
+    console.log(`[草丛] 玩家2位置: (${this.playerStates[1].position.x},${this.playerStates[1].position.y})`)
+    
+    // 从有效区域中过滤出可用格子
+    const availableCells = validCells.filter(cell => !forbidden.has(`${cell.x},${cell.y}`))
+    console.log(`[草丛] 可用格子数量: ${availableCells.length}`)
+    
+    // 随机选择草丛位置
+    const shuffledCells = availableCells.sort(() => Math.random() - 0.5)
+    const grass = shuffledCells.slice(0, count).map(cell => ({ x: cell.x, y: cell.y }))
+    
+    this.map.grass = grass
+    console.log(`[草丛] 成功生成 ${grass.length} 个草丛:`, grass.map(g => `(${g.x},${g.y})`).join(', '))
+  }
+  
+  // 检查玩家是否在草丛中
+  checkPlayerInGrass(position) {
+    return this.map.grass?.some(g => g.x === position.x && g.y === position.y) || false
+  }
+  
+  // 更新玩家隐藏状态
+  updateHiddenState(playerIndex) {
+    const player = this.playerStates[playerIndex]
+    const wasHidden = player.isHidden
+    player.isHidden = this.checkPlayerInGrass(player.position)
+    
+    if (player.isHidden !== wasHidden) {
+      console.log(`[草丛] 玩家${playerIndex + 1} ${player.isHidden ? '进入' : '离开'}草丛`)
+    }
+  }
+  
+  // ========== 沙漠沙丘特性 ==========
+  
+  // 生成可移动沙丘（沙漠主题特色）
+  generateSandDunes() {
+    const width = this.map.width
+    const height = this.map.height
+    
+    // 确定有效区域
+    let validCells = []
+    if (this.map.isShapeMap && this.map.shapeLayout) {
+      for (let y = 0; y < this.map.shapeLayout.length; y++) {
+        for (let x = 0; x < this.map.shapeLayout[y].length; x++) {
+          if (this.map.shapeLayout[y][x] === 1) {
+            validCells.push({ x, y })
+          }
+        }
+      }
+    } else {
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          validCells.push({ x, y })
+        }
+      }
+    }
+    
+    // 计算沙丘数量：有效区域面积的 1/8 ~ 1/6
+    const validArea = validCells.length
+    const count = Math.max(2, Math.min(Math.floor(validArea / 8), Math.floor(validArea / 6)))
+    
+    console.log(`[沙丘] 地图 ${width}x${height}，有效区域 ${validArea} 格，计划生成 ${count} 个沙丘`)
+    
+    // 禁止区域：障碍物、传送门、玩家初始位置、草丛
+    const forbidden = new Set()
+    this.map.obstacles.forEach(o => forbidden.add(`${o.x},${o.y}`))
+    if (this.map.portals) {
+      this.map.portals.forEach(p => {
+        forbidden.add(`${p.entry.x},${p.entry.y}`)
+        forbidden.add(`${p.exit.x},${p.exit.y}`)
+      })
+    }
+    forbidden.add(`${this.playerStates[0].position.x},${this.playerStates[0].position.y}`)
+    forbidden.add(`${this.playerStates[1].position.x},${this.playerStates[1].position.y}`)
+    if (this.map.grass) {
+      this.map.grass.forEach(g => forbidden.add(`${g.x},${g.y}`))
+    }
+    
+    const availableCells = validCells.filter(cell => !forbidden.has(`${cell.x},${cell.y}`))
+    const shuffledCells = availableCells.sort(() => Math.random() - 0.5)
+    const sandDunes = shuffledCells.slice(0, count).map(cell => ({ x: cell.x, y: cell.y }))
+    
+    this.map.sandDunes = sandDunes
+    console.log(`[沙丘] 成功生成 ${sandDunes.length} 个沙丘:`, sandDunes.map(d => `(${d.x},${d.y})`).join(', '))
+  }
+  
+  // 检查位置是否是沙丘
+  isSandDune(x, y) {
+    return this.map.sandDunes?.some(d => d.x === x && d.y === y) || false
+  }
+  
+  // 移动沙丘（每回合结束后调用）
+  moveSandDunes() {
+    if (!this.map.sandDunes || this.map.sandDunes.length === 0) return
+    
+    const movedDunes = []
+    const directions = [
+      { dx: 0, dy: -1 },  // 上
+      { dx: 0, dy: 1 },   // 下
+      { dx: -1, dy: 0 },  // 左
+      { dx: 1, dy: 0 }    // 右
+    ]
+    
+    // 收集所有不可移动到的位置
+    const occupiedPositions = new Set()
+    this.map.obstacles.forEach(o => occupiedPositions.add(`${o.x},${o.y}`))
+    if (this.map.portals) {
+      this.map.portals.forEach(p => {
+        occupiedPositions.add(`${p.entry.x},${p.entry.y}`)
+        occupiedPositions.add(`${p.exit.x},${p.exit.y}`)
+      })
+    }
+    if (this.map.grass) {
+      this.map.grass.forEach(g => occupiedPositions.add(`${g.x},${g.y}`))
+    }
+    
+    // 新沙丘位置集合（用于去重）
+    const newDunePositions = new Set()
+    
+    for (const dune of this.map.sandDunes) {
+      // 收集已有沙丘位置（排除当前沙丘）
+      const otherDunePositions = new Set()
+      for (const d of this.map.sandDunes) {
+        if (d !== dune) otherDunePositions.add(`${d.x},${d.y}`)
+      }
+      for (const pos of newDunePositions) otherDunePositions.add(pos)
+      
+      // 50%概率移动
+      if (Math.random() < 0.5) {
+        // 随机选择移动方向
+        const shuffledDirs = [...directions].sort(() => Math.random() - 0.5)
+        let moved = false
+        
+        for (const dir of shuffledDirs) {
+          const newX = dune.x + dir.dx
+          const newY = dune.y + dir.dy
+          const key = `${newX},${newY}`
+          
+          // 检查边界
+          if (newX < 0 || newX >= this.map.width || newY < 0 || newY >= this.map.height) continue
+          
+          // 检查是否在有效区域内（特色地形）
+          if (this.map.isShapeMap && this.map.shapeLayout) {
+            if (!this.map.shapeLayout[newY] || this.map.shapeLayout[newY][newX] !== 1) continue
+          }
+          
+          // 检查是否被占据
+          if (occupiedPositions.has(key)) continue
+          
+          // 检查是否与其他沙丘重叠
+          if (otherDunePositions.has(key)) continue
+          
+          // 检查是否与玩家重叠
+          if (this.playerStates[0].position.x === newX && this.playerStates[0].position.y === newY) continue
+          if (this.playerStates[1].position.x === newX && this.playerStates[1].position.y === newY) continue
+          
+          // 可以移动
+          movedDunes.push({ from: { x: dune.x, y: dune.y }, to: { x: newX, y: newY } })
+          newDunePositions.add(key)
+          dune.x = newX
+          dune.y = newY
+          moved = true
+          break
+        }
+        
+        if (!moved) {
+          newDunePositions.add(`${dune.x},${dune.y}`)
+        }
+      } else {
+        newDunePositions.add(`${dune.x},${dune.y}`)
+      }
+    }
+    
+    // 通知客户端沙丘移动
+    if (movedDunes.length > 0) {
+      this.io?.to(this.roomCode).emit('sand_dunes_moved', {
+        sandDunes: this.map.sandDunes,
+        movedDunes: movedDunes
+      })
+      console.log(`[沙丘] ${movedDunes.length} 个沙丘移动了位置`)
+    }
   }
   
   hasPlayer(socketId) {
@@ -625,11 +876,38 @@ class Match {
     // 生成传送门
     this.generatePortals()
     
+    // 森林主题：生成草丛
+    console.log(`[草丛] 检查主题: ${this.theme.id}, grassEnabled: ${this.theme.grassEnabled}`)
+    if (this.theme.grassEnabled) {
+      console.log(`[草丛] 森林主题确认，开始生成草丛...`)
+      this.generateGrass()
+    } else {
+      console.log(`[草丛] 非森林主题或 grassEnabled 未设置，跳过草丛生成`)
+    }
+    
+    // 沙漠主题：生成可移动沙丘
+    console.log(`[沙丘] 检查主题: ${this.theme.id}, sandDuneEnabled: ${this.theme.sandDuneEnabled}`)
+    if (this.theme.sandDuneEnabled) {
+      console.log(`[沙丘] 沙漠主题确认，开始生成沙丘...`)
+      this.generateSandDunes()
+    } else {
+      console.log(`[沙丘] 非沙漠主题或 sandDuneEnabled 未设置，跳过沙丘生成`)
+    }
+    
+    // 古城主题：技能封印
+    if (this.theme.id === 'ruins') {
+      this.skillSealed = true
+      console.log(`[封印] 古城技能封印生效！所有角色技能无效`)
+    } else {
+      this.skillSealed = false
+    }
+    
     // 通知客户端游戏开始，并传递先手信息和主题
     this.io?.to(this.roomCode).emit('game_start', {
       ...this.getState(),
       isPlayer1Priority: this.isPlayer1Priority,
-      theme: this.theme
+      theme: this.theme,
+      skillSealed: this.skillSealed
     })
     
     // 给先手玩家发牌
@@ -659,7 +937,7 @@ class Match {
     this.playerStates[1].orderConfirmed = false
     
     // ========== 处理主动技能牌 ==========
-    // 为拥有主动技能且冷却完毕的玩家添加技能牌
+    // 始终添加技能牌，古城封印时标记sealed=true（客户端显示封印效果，禁止选择）
     for (let i = 0; i < 2; i++) {
       const player = this.playerStates[i]
       if (player.skill && player.skill.skillType === 'active' && player.skillCooldown === 0) {
@@ -672,10 +950,15 @@ class Match {
           icon: player.skill.skillIcon,
           description: player.skill.description,
           cooldown: player.skill.cooldown,
-          isSkillCard: true
+          isSkillCard: true,
+          sealed: this.skillSealed  // 古城封印标记
         }
         player.currentCards.push(skillCard)
-        console.log(`[技能] 玩家${i + 1}的主动技能牌【${player.skill.skillName}】已加入可选牌池`)
+        if (this.skillSealed) {
+          console.log(`[封印] 玩家${i + 1}的主动技能牌【${player.skill.skillName}】已加入可选牌池（封印状态）`)
+        } else {
+          console.log(`[技能] 玩家${i + 1}的主动技能牌【${player.skill.skillName}】已加入可选牌池`)
+        }
       }
     }
     
@@ -703,6 +986,7 @@ class Match {
     }, 2000)
     
     this.phase = GAME_PHASES.SELECTING_PRIORITY
+    this.triggerAIIfNeeded('selecting')
   }
   
   // 为后手玩家发牌
@@ -1078,6 +1362,10 @@ class Match {
     if (this.map.obstacles.some(o => o.x === x && o.y === y)) {
       return false
     }
+    // 检查沙丘（阻挡移动）
+    if (this.isSandDune(x, y)) {
+      return false
+    }
     // 检查对方位置
     if (opponentPos.x === x && opponentPos.y === y) {
       return false
@@ -1103,6 +1391,17 @@ class Match {
     
     // 检查是否选中了技能牌
     const hasSkillCard = handCards.some(c => c && c.isSkillCard)
+    
+    // 古城封印校验：封印状态下不允许选择技能牌
+    if (hasSkillCard && this.skillSealed) {
+      console.log(`[封印] 玩家${index + 1}尝试选择被封印的技能牌，已拒绝`)
+      this.io?.to(player.id).emit('private_message', {
+        message: `技能已被封印，无法选择！`,
+        type: 'warning'
+      })
+      return
+    }
+    
     if (hasSkillCard) {
       player.skillSelected = true
       console.log(`[技能] 玩家${index + 1}选中了技能牌`)
@@ -1127,8 +1426,10 @@ class Match {
         opponentFirstCard: null
       })
       console.log(`[选择] 先手选完，进入排序阶段`)
+      this.triggerAIIfNeeded('ordering_priority')
     } else {
       // 后手玩家选择完毕，通知进入排序阶段
+      this.phase = GAME_PHASES.ORDERING_NORMAL
       const priorityIndex = this.isPlayer1Priority ? 0 : 1
       this.io?.to(this.playerStates[index].id).emit('normal_cards_selected', {
         playerIndex: index,
@@ -1139,6 +1440,11 @@ class Match {
       this.io?.to(this.playerStates[priorityIndex].id).emit('opponent_first_card_visible', {
         opponentFirstCard: this.playerStates[index].handCards[0] || null
       })
+      
+      // AI后手选牌后自动确认顺序
+      if (this.isAIMatch && this.aiPlayer && this.aiPlayer.playerIndex === index) {
+        this.triggerAIIfNeeded('ordering_normal')
+      }
     }
   }
   
@@ -1226,6 +1532,10 @@ class Match {
             isFirstRound: this.currentRound === 1  // 是否第一回合
           })
           console.log(`[顺序] 通知后手选择查看第一张或最后一张牌`)
+          // AI自动查看对手牌
+          if (this.isAIMatch && this.aiPlayer && this.aiPlayer.playerIndex === normalIndex) {
+            this.triggerAIIfNeeded('view_opponent_card')
+          }
         }, 1200)  // 等待发牌动画完成（约1秒）
       } else {
         console.log(`[顺序] 女盗贼技能已触发，跳过观看手牌阶段`)
@@ -1233,6 +1543,7 @@ class Match {
         // 延迟让发牌动画完成后再进入选牌阶段
         setTimeout(() => {
           this.phase = GAME_PHASES.SELECTING_NORMAL
+          this.triggerAIIfNeeded('selecting')
         }, 1500)
       }
       
@@ -1244,43 +1555,79 @@ class Match {
     } else {
       // 后手玩家确认顺序完毕
       
-      // ========== 被动技能触发（出牌阶段开始前）==========
-      // 天降箭雨等被动技能在此触发，特效播放完毕后再开始出牌
-      console.log(`[被动技能] 出牌阶段开始前，检查双方被动技能...`)
+      // ========== 冰原寒流检查（出牌阶段开始前）==========
+      this.checkAndTriggerIceFreeze()
       
-      let hasPassiveSkill = false
-      
-      for (let i = 0; i < 2; i++) {
-        const player = this.playerStates[i]
-        if (player.skill && player.skill.skillType === 'passive') {
-          hasPassiveSkill = true
-          console.log(`[被动技能] 玩家${i + 1}的被动技能: ${player.skill.id}`)
-          this.processPassiveSkill(i)
+      // ========== 火山火球检查（出牌阶段开始前）==========
+      // 火球伤害在卡牌执行之前计算，如果火球导致玩家死亡则直接结束游戏
+      this.checkAndTriggerVolcanoFireball((gameEnded) => {
+        // 如果火球导致游戏结束，不再开始出牌阶段
+        if (gameEnded) {
+          console.log(`[火球] 火球导致玩家死亡，游戏结束，跳过出牌阶段`)
+          return
         }
-      }
-      
-      // 延迟2秒让被动技能特效播放完毕，再开始出牌阶段
-      const delayTime = hasPassiveSkill ? 2000 : 0
-      
-      setTimeout(() => {
-        // 开始出牌阶段
-        this.phase = GAME_PHASES.PLAYING
-        this.turnIndex = 0
-        console.log(`[出牌] 开始出牌阶段`)
-        console.log(`[出牌] 先手玩家: ${this.isPlayer1Priority ? '玩家1' : '玩家2'}`)
-        console.log(`[出牌] 玩家1手牌:`, this.playerStates[0].handCards.map(c => c.name))
-        console.log(`[出牌] 玩家2手牌:`, this.playerStates[1].handCards.map(c => c.name))
+
+        // ========== 被动技能触发（出牌阶段开始前）==========
+        // 天降箭雨等被动技能在此触发，特效播放完毕后再开始出牌
+        console.log(`[被动技能] 出牌阶段开始前，检查双方被动技能...`)
         
-        // 发送完整状态给所有玩家，包括各自的手牌
-        const state = this.getState()
-        state.player1Hand = this.playerStates[0].handCards
-        state.player2Hand = this.playerStates[1].handCards
+        let hasPassiveSkill = false
         
-        // 通知先手玩家可以出牌
-        this.io?.to(this.playerStates[priorityIndex].id).emit('your_turn_to_play')
+        for (let i = 0; i < 2; i++) {
+          const player = this.playerStates[i]
+          if (player.skill && player.skill.skillType === 'passive') {
+            hasPassiveSkill = true
+            console.log(`[被动技能] 玩家${i + 1}的被动技能: ${player.skill.id}`)
+            this.processPassiveSkill(i)
+          }
+        }
         
-        this.io?.to(this.roomCode).emit('all_orders_complete', state)
-      }, delayTime)
+        // 延迟2秒让被动技能特效播放完毕，再开始出牌阶段
+        const delayTime = hasPassiveSkill ? 2000 : 0
+        
+        setTimeout(() => {
+          // ========== 男盗贼"盗为己用"预处理（出牌阶段开始前）==========
+          // 无论盗为己用牌在手牌中排第几位，都在出牌阶段开始前标记对手第一张牌为无效
+          for (let i = 0; i < 2; i++) {
+            const player = this.playerStates[i]
+            const opponent = this.playerStates[1 - i]
+            const hasStealSkill = player.handCards.some(c => c.isSkillCard && c.skillId === 'thief_male')
+            if (hasStealSkill && opponent.handCards[0]) {
+              opponent.handCards[0].invalidated = true
+              console.log(`[盗为己用] 预处理：玩家${i + 1}有盗为己用，标记对手第一张牌【${opponent.handCards[0].name}】为无效`)
+              // 通知使用盗为己用的玩家
+              this.io?.to(this.playerStates[i].id).emit('private_message', {
+                message: `🗡️ 你使用了【盗为己用】！对手的第一张牌将无效`,
+                type: 'success'
+              })
+              // 通知被偷牌的对手（使用"你"）
+              this.io?.to(opponent.id).emit('private_message', {
+                message: `🗡️ 对手使用了【盗为己用】！你的第一张牌将无效`,
+                type: 'warning'
+              })
+            }
+          }
+          
+          // 开始出牌阶段
+          this.phase = GAME_PHASES.PLAYING
+          this.turnIndex = 0
+          console.log(`[出牌] 开始出牌阶段`)
+          console.log(`[出牌] 先手玩家: ${this.isPlayer1Priority ? '玩家1' : '玩家2'}`)
+          console.log(`[出牌] 玩家1手牌:`, this.playerStates[0].handCards.map(c => c.name))
+          console.log(`[出牌] 玩家2手牌:`, this.playerStates[1].handCards.map(c => c.name))
+          
+          // 发送完整状态给所有玩家，包括各自的手牌
+          const state = this.getState()
+          state.player1Hand = this.playerStates[0].handCards
+          state.player2Hand = this.playerStates[1].handCards
+          
+          // 通知先手玩家可以出牌
+          this.io?.to(this.playerStates[priorityIndex].id).emit('your_turn_to_play')
+          
+          this.io?.to(this.roomCode).emit('all_orders_complete', state)
+          this.triggerAIIfNeeded('playing')
+        }, delayTime)
+      })
     }
   }
   
@@ -1318,6 +1665,12 @@ class Match {
       viewedCard: viewedCard,
       choice: choice
     })
+    
+    // AI查看对手牌后自动进入选牌阶段
+    if (this.isAIMatch && this.aiPlayer && this.aiPlayer.playerIndex === index) {
+      this.phase = GAME_PHASES.SELECTING_NORMAL
+      this.triggerAIIfNeeded('selecting')
+    }
   }
   
   // 出牌
@@ -1399,6 +1752,8 @@ class Match {
       // 先发送状态更新，让客户端看到最后一张牌的效果
       this.io?.to(this.roomCode).emit('turn_played', this.getState())
       
+      this.triggerAIIfNeeded('playing')
+      
       // 检查回合是否结束 (3对牌，每对2次出牌)
       if (this.turnIndex >= GAME_CONFIG.HAND_SIZE * 2) {
         // 延迟2秒后再结束回合，让玩家看到最后一张牌的效果
@@ -1412,6 +1767,21 @@ class Match {
   // 执行卡牌效果
   executeCard(playerIndex, card) {
     const player = this.playerStates[playerIndex]
+    
+    // ========== 冰原寒流检查 ==========
+    // 如果本回合被冻结，跳过卡牌效果执行
+    if (this.frozenThisRound) {
+      console.log(`[寒流] 玩家${playerIndex + 1}的牌【${card.name}】被寒流冻结，效果无效`)
+      this.io?.to(this.roomCode).emit('card_frozen', {
+        playerIndex: playerIndex,
+        card: card
+      })
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `❄️ 玩家${playerIndex + 1}的【${card.name}】被寒流冻结，效果无效！`,
+        type: 'warning'
+      })
+      return  // 直接返回，不执行任何效果
+    }
     
     // 如果打出的是非防御牌，清除该玩家的防御状态
     if (card.type !== 'defense' && card.type !== 'skill' && player.isDefending) {
@@ -1779,6 +2149,7 @@ class Match {
   }
   
   // 男盗贼 - 盗为己用：复制对手第一张牌并使其无效
+  // 注意：对手第一张牌的invalidated标记已在出牌阶段开始前（confirmOrder中）预处理完成
   executeStealSkill(playerIndex, card) {
     const opponent = this.playerStates[1 - playerIndex]
     const opponentHand = opponent.handCards
@@ -1801,7 +2172,7 @@ class Match {
       stolenCard: firstCard
     })
 
-    // 标记对手第一张牌为无效（将在出牌时跳过）
+    // 确保对手第一张牌标记为无效（双重保险，正常情况下已在confirmOrder中预处理）
     firstCard.invalidated = true
 
     // 将偷来的牌加入玩家手牌（立即执行效果）
@@ -1812,7 +2183,7 @@ class Match {
 
     // 执行偷来的牌的效果
     setTimeout(() => {
-      this.executeCard(playerIndex, { ...firstCard, id: `stolen_${firstCard.id}` })
+      this.executeCard(playerIndex, { ...firstCard, id: `stolen_${firstCard.id}`, invalidated: false })
     }, 1000)
   }
   
@@ -1847,6 +2218,15 @@ class Match {
       return false
     }
     
+    // 检查沙丘
+    if (this.isSandDune(newX, newY)) {
+      this.io?.to(this.playerStates[playerIndex].id).emit('private_message', {
+        message: `无法移动：前方有沙丘`,
+        type: 'warning'
+      })
+      return false
+    }
+    
     // 检查对方位置
     if (opponent.position.x === newX && opponent.position.y === newY) {
       // 对方位置，发送私密提示（只给操作者）
@@ -1867,6 +2247,9 @@ class Match {
     
     player.position.x = newX
     player.position.y = newY
+    
+    // 更新隐藏状态（草丛）
+    this.updateHiddenState(playerIndex)
     
     // ========== 记录历史视野（男阅读者技能用）==========
     this.recordHistoryVision(playerIndex)
@@ -1891,9 +2274,11 @@ class Match {
     
     // ========== 女骑士攻击范围+1 ==========
     let actualRange = range
-    if (player.skill && player.skill.id === 'knight_female') {
+    if (player.skill && player.skill.id === 'knight_female' && !this.skillSealed) {
       actualRange = range + 1
       console.log(`[被动] 坚韧突刺：攻击范围+1，${range} → ${actualRange}`)
+    } else if (player.skill && player.skill.id === 'knight_female' && this.skillSealed) {
+      console.log(`[封印] 古城技能封印：女骑士攻击范围+1无效`)
     }
     
     // 记录攻击路径（用于特效）
@@ -1927,7 +2312,7 @@ class Match {
       const obstacleIndex = this.map.obstacles.findIndex(o => o.x === targetX && o.y === targetY && !o.isBoundary)
       if (obstacleIndex !== -1) {
         // ========== 女法师爆裂攻击：摧毁障碍物 ==========
-        if (player.skill && player.skill.id === 'mage_female') {
+        if (player.skill && player.skill.id === 'mage_female' && !this.skillSealed) {
           // 移除障碍物
           const destroyedObstacle = this.map.obstacles.splice(obstacleIndex, 1)[0]
           this.io?.to(this.roomCode).emit('obstacle_destroyed', {
@@ -2019,9 +2404,11 @@ class Match {
     let actualScoutType = scoutType
     let scoutBonus = 0
     
-    if (player.skill && player.skill.id === 'reader_female' && scoutType === 'around') {
+    if (player.skill && player.skill.id === 'reader_female' && scoutType === 'around' && !this.skillSealed) {
       scoutBonus = 1
       console.log(`[被动] 深度求索：环绕探查范围+1`)
+    } else if (player.skill && player.skill.id === 'reader_female' && scoutType === 'around' && this.skillSealed) {
+      console.log(`[封印] 古城技能封印：女阅读者深度求索无效`)
     }
     
     // 记录探查效果
@@ -2134,7 +2521,15 @@ class Match {
     this.turnIndex = 0
     this.priorityOrderComplete = false
     
+    // 重置冰原寒流状态
+    this.frozenThisRound = false
+    
     console.log(`[回合] 第${this.currentRound}回合开始，先手: ${this.isPlayer1Priority ? '玩家1' : '玩家2'}`)
+    
+    // 沙漠主题：移动沙丘
+    if (this.theme && this.theme.sandDuneEnabled) {
+      this.moveSandDunes()
+    }
     
     // 检查是否有未使用的防御状态，如果有则发送提示
     if (this.playerStates[0].isDefending) {
@@ -2184,11 +2579,224 @@ class Match {
     }, 100)
   }
   
+  // ========== 冰原寒流特性 ==========
+  
+  // 检查并触发冰原寒流
+  checkAndTriggerIceFreeze() {
+    // 检查是否是冰原主题
+    if (!this.theme || this.theme.id !== 'ice') {
+      console.log(`[寒流] 非冰原主题，跳过寒流检查`)
+      return
+    }
+    
+    // 检查是否已经触发过寒流
+    if (this.frozenThisRound) {
+      console.log(`[寒流] 本回合已触发过寒流，跳过`)
+      return
+    }
+    
+    // 15%概率触发寒流
+    const chance = 1
+    const triggered = Math.random() < chance
+    
+    if (triggered) {
+      this.frozenThisRound = true
+      console.log(`[寒流] 冰原寒流触发！本回合所有出牌效果被冻结`)
+      
+      // 发送寒流触发事件
+      this.io?.to(this.roomCode).emit('cold_wave_triggered', {
+        message: '❄️ 寒流来袭！本回合所有卡牌效果被冻结！'
+      })
+      
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `❄️ 寒流来袭！本回合所有出牌效果被冻结！`,
+        type: 'warning'
+      })
+    } else {
+      console.log(`[寒流] 冰原寒流未触发`)
+    }
+  }
+  
+  // ========== 火山火球特性 ==========
+
+  // 检查并触发火山火球
+  // onComplete: 火球处理完毕后的回调，参数为 gameEnded(是否导致游戏结束)
+  checkAndTriggerVolcanoFireball(onComplete) {
+    // 检查是否为火山主题
+    if (this.theme?.id !== 'volcano') {
+      if (onComplete) onComplete(false)
+      return
+    }
+
+    console.log(`[火球] 火山火球事件触发！`)
+
+    // 生成火球
+    const fireballs = this.generateFireballs()
+
+    if (fireballs.length > 0) {
+      // 发送火球事件给客户端（先播放动画）
+      this.io?.to(this.roomCode).emit('fireball_event', {
+        fireballs: fireballs,
+        message: '🔥 火山喷发！天降火球！'
+      })
+
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: '🔥 火山喷发！天降火球！',
+        type: 'warning'
+      })
+
+      // 延迟处理火球伤害（等待动画播放）
+      setTimeout(() => {
+        const gameEnded = this.processFireballDamage(fireballs)
+        if (onComplete) onComplete(gameEnded)
+      }, 2000) // 2秒后处理伤害
+    } else {
+      if (onComplete) onComplete(false)
+    }
+  }
+
+  // 生成火球位置和数量
+  generateFireballs() {
+    const width = this.map.width
+    const height = this.map.height
+    const area = width * height
+
+    // 计算火球数量：m = 向上取整(地图面积开平方 ÷ 2)
+    const m = Math.ceil(Math.sqrt(area) / 2)
+
+    console.log(`[火球] 地图 ${width}x${height}，面积 ${area}，生成 ${m} 个火球`)
+
+    // 获取所有有效格子（非边界障碍物的格子）
+    const validCells = []
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        // 排除边界障碍物
+        const obstacle = this.map.obstacles?.find(o => o.x === x && o.y === y)
+        if (obstacle?.isBoundary) continue
+
+        // 特色地形检查：只选择有效区域内的格子
+        if (this.map.isShapeMap && this.map.shapeLayout) {
+          if (this.map.shapeLayout[y]?.[x] !== 1) continue
+        }
+
+        validCells.push({ x, y })
+      }
+    }
+
+    // 随机选择 m 个格子
+    const shuffledCells = validCells.sort(() => Math.random() - 0.5)
+    const fireballs = shuffledCells.slice(0, m).map((cell, index) => ({
+      id: `fireball_${index}_${Date.now()}`,
+      x: cell.x,
+      y: cell.y
+    }))
+
+    console.log(`[火球] 生成火球位置:`, fireballs.map(f => `(${f.x},${f.y})`).join(', '))
+
+    return fireballs
+  }
+
+  // 处理火球伤害（摧毁障碍物、传送门，以及玩家HP伤害）
+  processFireballDamage(fireballs) {
+    const destroyedObstacles = []
+    const destroyedPortals = []
+    const hitPlayers = []  // 被火球击中的玩家信息
+
+    for (const fireball of fireballs) {
+      // 检查是否命中障碍物
+      const obstacleIndex = this.map.obstacles.findIndex(
+        o => o.x === fireball.x && o.y === fireball.y && !o.isBoundary
+      )
+      if (obstacleIndex !== -1) {
+        const obstacle = this.map.obstacles[obstacleIndex]
+        destroyedObstacles.push({ ...obstacle })
+        this.map.obstacles.splice(obstacleIndex, 1)
+        console.log(`[火球] 摧毁障碍物: (${fireball.x},${fireball.y})`)
+      }
+
+      // 检查是否命中传送门
+      const portalIndex = this.map.portals.findIndex(
+        p => (p.entry.x === fireball.x && p.entry.y === fireball.y) ||
+             (p.exit.x === fireball.x && p.exit.y === fireball.y)
+      )
+      if (portalIndex !== -1) {
+        const portal = this.map.portals[portalIndex]
+        destroyedPortals.push({ ...portal })
+        this.map.portals.splice(portalIndex, 1)
+        console.log(`[火球] 摧毁传送门: ${portal.color}`)
+      }
+
+      // 检查是否命中玩家
+      for (let i = 0; i < 2; i++) {
+        const player = this.playerStates[i]
+        if (player.position.x === fireball.x && player.position.y === fireball.y) {
+          if (player.isDefending) {
+            // 防御状态抵挡火球伤害
+            hitPlayers.push({ playerIndex: i, defended: true })
+            console.log(`[火球] 玩家${i + 1}在火球位置，但处于防御状态，抵挡了伤害！`)
+          } else {
+            // 非防御状态，扣除1点HP
+            player.hp -= 1
+            hitPlayers.push({ playerIndex: i, defended: false })
+            console.log(`[火球] 玩家${i + 1}被火球击中！HP-1，当前HP: ${player.hp}`)
+          }
+        }
+      }
+    }
+
+    // 发送伤害结果给客户端（始终发送，即使只有玩家被击中）
+    this.io?.to(this.roomCode).emit('fireball_damage', {
+      destroyedObstacles,
+      destroyedPortals,
+      hitPlayers,
+      map: this.map
+    })
+
+    // 发送游戏消息
+    if (destroyedObstacles.length > 0) {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `🔥 火球摧毁了${destroyedObstacles.length}个障碍物！`,
+        type: 'warning'
+      })
+    }
+    if (destroyedPortals.length > 0) {
+      this.io?.to(this.roomCode).emit('game_message', {
+        message: `🔥 火球摧毁了${destroyedPortals.length}对传送门！`,
+        type: 'warning'
+      })
+    }
+    // 玩家被火球击中的消息
+    for (const hit of hitPlayers) {
+      if (hit.defended) {
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `🛡️ 玩家${hit.playerIndex + 1}用防御抵挡了火球！`,
+          type: 'info'
+        })
+      } else {
+        this.io?.to(this.roomCode).emit('game_message', {
+          message: `🔥 玩家${hit.playerIndex + 1}被火球击中！HP-1`,
+          type: 'error'
+        })
+      }
+    }
+
+    // 检查火球是否导致玩家死亡（游戏结束）
+    const gameEnded = this.checkGameEnd()
+    return gameEnded
+  }
+
   // ========== 被动技能处理 ==========
   
   // 处理被动技能
   processPassiveSkill(playerIndex) {
     const player = this.playerStates[playerIndex]
+    
+    // 古城技能封印：被动技能无效
+    if (this.skillSealed) {
+      console.log(`[封印] 古城技能封印：玩家${playerIndex + 1}的被动技能无效`)
+      return
+    }
+    
     const skillId = player.skill.id
     
     switch (skillId) {
@@ -2338,6 +2946,12 @@ class Match {
     const player = this.playerStates[playerIndex]
     const opponent = this.playerStates[1 - playerIndex]
     
+    // 古城技能封印：隔墙有眼无效
+    if (this.skillSealed) {
+      console.log(`[封印] 古城技能封印：女盗贼隔墙有眼无效`)
+      return null
+    }
+    
     console.log(`[调试] ====== 隔墙有眼开始执行 ======`)
     console.log(`[调试] 执行对象: 玩家${playerIndex + 1}, 角色: ${player.avatar?.id || '未知'}`)
     console.log(`[调试] 对手: 玩家${1 - playerIndex + 1}, 角色: ${opponent.avatar?.id || '未知'}`)
@@ -2432,6 +3046,9 @@ class Match {
     this.playerStates[1].skillCooldown = 0  // 重置技能冷却，确保新游戏技能可用
     this.playerStates[1].skillSelected = false
     this.playerStates[1].wallSkillLastTriggeredRound = -1  // 重置女盗贼技能触发记录
+    
+    // 重置古城技能封印状态
+    this.skillSealed = false
     
     console.log(`[游戏] 重置游戏，进入地图配置阶段`)
     
@@ -2557,6 +3174,7 @@ class Match {
         position: { ...p.position },
         hp: p.hp,
         maxHp: GAME_CONFIG.INITIAL_HP + (p.skill?.bonusHp || 0),
+        isHidden: p.isHidden,  // 草丛隐藏状态
         handCards: i === 0 ? p.handCards : (i === 1 ? p.handCards : []),
         // 技能相关状态
         skill: p.skill,
@@ -2572,8 +3190,83 @@ class Match {
       player1Skill: this.playerStates[0].skill,
       player2Skill: this.playerStates[1].skill,
       player1SkillCooldown: this.playerStates[0].skillCooldown,
-      player2SkillCooldown: this.playerStates[1].skillCooldown
+      player2SkillCooldown: this.playerStates[1].skillCooldown,
+      // 古城技能封印状态
+      skillSealed: this.skillSealed
     }
+  }
+  
+  // ========== AI单人模式触发 ==========
+  
+  // AI触发：根据当前阶段让AI自动操作
+  triggerAIIfNeeded(action) {
+    if (!this.isAIMatch || !this.aiPlayer) return
+    
+    const aiIndex = this.aiPlayer.playerIndex
+    const aiSocketId = this.aiPlayer.getSocketId()
+    
+    console.log(`[AI触发] action=${action}, AI索引=${aiIndex}`)
+    
+    switch (action) {
+      case 'selecting':
+        // AI选牌
+        if (this.phase === GAME_PHASES.SELECTING_PRIORITY || this.phase === GAME_PHASES.SELECTING_NORMAL) {
+          const priorityIndex = this.isPlayer1Priority ? 0 : 1
+          // 检查是否轮到AI选牌
+          if ((this.phase === GAME_PHASES.SELECTING_PRIORITY && aiIndex === priorityIndex) ||
+              (this.phase === GAME_PHASES.SELECTING_NORMAL && aiIndex !== priorityIndex)) {
+            this.aiPlayer.executeSelectCards()
+          }
+        }
+        break
+      case 'ordering_priority':
+        // AI排序（先手）
+        if (aiIndex === (this.isPlayer1Priority ? 0 : 1)) {
+          this.aiPlayer.executeConfirmOrder()
+        }
+        break
+      case 'ordering_normal':
+        // AI排序（后手）
+        if (aiIndex !== (this.isPlayer1Priority ? 0 : 1)) {
+          this.aiPlayer.executeConfirmOrder()
+        }
+        break
+      case 'view_opponent_card':
+        // AI查看对手牌
+        this.aiPlayer.executeViewOpponentCard()
+        break
+      case 'playing':
+        // AI出牌
+        this.aiPlayer.executePlayCard()
+        break
+      case 'game_end':
+        // AI自动同意再来一局
+        this.aiPlayer.executeRematch()
+        break
+    }
+  }
+  
+  // 初始化AI单人模式
+  initAI(difficulty = 'normal') {
+    this.isAIMatch = true
+    this.aiPlayer = new AIPlayer(1, this, difficulty)  // AI始终是玩家2
+    const aiSocketId = this.aiPlayer.getSocketId()
+    
+    // 设置AI的socketId和角色
+    this.playerStates[1].id = aiSocketId
+    this.playerStates[1].avatarId = this.aiPlayer.avatarId
+    
+    // 初始化AI角色技能
+    const skillConfig = getCharacterSkillById(this.aiPlayer.avatarId)
+    if (skillConfig) {
+      this.playerStates[1].skill = skillConfig
+      if (skillConfig.bonusHp) {
+        this.playerStates[1].hp = GAME_CONFIG.INITIAL_HP + skillConfig.bonusHp
+      }
+    }
+    
+    console.log(`[AI] 单人模式初始化完成, AI角色: ${this.aiPlayer.avatarId}, 难度: ${difficulty}`)
+    return aiSocketId
   }
   
   // 设置IO实例

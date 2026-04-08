@@ -30,8 +30,14 @@
           :class="{
             'obstacle': cell.isObstacle,
             'boundary': cell.isBoundary,
-            'player1': cell.hasPlayer1,
-            'player2': cell.hasPlayer2,
+            'grass': cell.isGrass,
+            'sand-dune': cell.isSandDune,
+            'sand-dune-ghost': cell.isSandDuneGhost,
+            'sand-dune-appear': cell.isSandDuneAppear,
+            'player1': cell.hasPlayer1 && !cell.player1Hidden,
+            'player2': cell.hasPlayer2 && !cell.player2Hidden,
+            'player1-hidden': cell.hasPlayer1 && cell.player1Hidden,
+            'player2-hidden': cell.hasPlayer2 && cell.player2Hidden,
             'highlight': cell.isHighlighted,
             'attack-path': cell.inAttackPath,
             'attack-hit': cell.isAttackTarget && attackEffect?.hit,
@@ -297,6 +303,66 @@
       </div>
     </div>
     
+    <!-- 火球特效层（火山主题随机事件）- 在迷雾之上，确保清晰可见 -->
+    <div v-if="fireballEffects.length > 0" class="fireball-overlay" style="z-index: 300;">
+      <!-- 预警效果 - 目标位置警告圈 -->
+      <div v-for="(fireball, idx) in fireballEffects" :key="'warning-' + fireball.id"
+           v-show="!fireball.exploding" class="fireball-warning" :style="getFireballStyle(fireball)">
+        <div class="warning-ring"></div>
+        <div class="warning-ring ring-2"></div>
+        <div class="warning-cross"></div>
+      </div>
+      
+      <!-- 火球下落动画 -->
+      <div v-for="(fireball, idx) in fireballEffects" :key="fireball.id"
+           class="fireball-container" :style="getFireballStyle(fireball)">
+        <!-- 火球主体 -->
+        <div class="fireball-main" :class="{ 'fireball-exploding': fireball.exploding }">
+          <div class="fireball-core"></div>
+          <div class="fireball-outer"></div>
+          <div class="fireball-glow"></div>
+        </div>
+        <!-- 火焰拖尾 -->
+        <div class="fireball-trail">
+          <span v-for="i in 8" :key="i" class="trail-flame" :class="`trail-${i}`"></span>
+        </div>
+        <!-- 爆炸特效 -->
+        <div v-if="fireball.exploding" class="fireball-explosion">
+          <div class="explosion-core"></div>
+          <div class="explosion-ring"></div>
+          <div class="explosion-particles">
+            <span v-for="i in 12" :key="i" class="explosion-spark" :class="`espark-${i}`"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+<!-- 寒流特效覆盖层（冰原主题地图事件） -->
+    <div v-if="showColdWave" class="cold-wave-overlay">
+      <!-- 蓝色半透明遮罩 -->
+      <div class="cold-wave-mask"></div>
+      
+      <!-- 冰霜边缘 -->
+      <div class="frost-border"></div>
+      
+      <!-- 寒风粒子 -->
+      <div class="cold-wave-particles">
+        <div v-for="i in 30" :key="i" class="cold-particle" :class="`cold-particle-${i}`"></div>
+      </div>
+      
+      <!-- 寒风流动效果 -->
+      <div class="cold-wind-flow">
+        <div class="wind-stream wind-stream-1"></div>
+        <div class="wind-stream wind-stream-2"></div>
+        <div class="wind-stream wind-stream-3"></div>
+      </div>
+      
+      <!-- 大雪花 -->
+      <div class="snowflakes-container">
+        <div v-for="i in 20" :key="i" class="snowflake" :class="`snowflake-${i}`">❄️</div>
+      </div>
+    </div>
+    
  <!-- 全局迷雾遮罩层 - 覆盖在所有特效之上（可配置开关） -->
     <div v-if="fogEnabled" class="global-fog-container" :class="{ 'fog-clearing': scoutEffects.length > 0 }" :style="{ ...getGlobalFogStyle(), ...fogClearMaskStyle }">
 <!-- SVG 噪音滤镜定义 - 统一风格，差异化颗粒 -->
@@ -378,10 +444,15 @@ export default {
     mySkill: {
       type: Object,
       default: null
+    },
+    showColdWave: {
+      type: Boolean,
+      default: false
     }
   },
   setup(props) {
     const attackEffect = ref(null)
+    const attackHitEffect = ref(null)
     const showExplosion = ref(false)
     const moveEffect = ref(null)
     const defenseStatus = ref({ 0: false, 1: false })
@@ -560,9 +631,12 @@ export default {
     
     // 穿透箭特效状态（男弓箭手技能）
     const piercingArrowEffect = ref(null)
-    
+
     // 天降箭雨特效状态（女弓箭手被动技能）- 支持多个特效同时显示
     const arrowRainEffect = ref([])
+
+    // 火球特效状态（火山主题随机事件）- 支持多个火球同时显示
+    const fireballEffects = ref([])
     
     // ========== 技能特效设置方法 ==========
     
@@ -788,6 +862,70 @@ export default {
           arrowRainEffect.value.splice(index, 1)
         }
       }, 2000)
+    }
+    
+    // 设置火球特效（火山主题随机事件）- 支持多个火球同时显示
+    const setFireballEffect = (data) => {
+      console.log('[GameBoard] 🔥 设置火球特效:', data)
+      
+      // 将火球数据添加到数组中
+      const fireballs = (data.fireballs || []).map(fb => ({
+        ...fb,
+        exploding: false  // 初始状态：未爆炸
+      }))
+      
+      fireballEffects.value = fireballs
+      
+      // 1.5秒后触发爆炸动画
+      setTimeout(() => {
+        fireballEffects.value.forEach(fb => {
+          fb.exploding = true
+        })
+      }, 1500)
+      
+      // 3秒后清除特效
+      setTimeout(() => {
+        fireballEffects.value = []
+      }, 3000)
+    }
+    
+    // 设置火球击中玩家特效
+    const setFireballHitPlayer = (hit) => {
+      console.log('[GameBoard] 🔥 火球击中玩家:', hit)
+      // 使用攻击命中特效来显示火球击中
+      const playerPos = props.players[hit.playerIndex]?.position
+      if (playerPos) {
+        attackHitEffect.value = {
+          x: playerPos.x,
+          y: playerPos.y,
+          playerIndex: hit.playerIndex,
+          defended: hit.defended,
+          timestamp: Date.now()
+        }
+        // 播放命中音效
+        if (hit.defended) {
+          // 防御成功音效
+        } else {
+          // 受伤音效
+        }
+        // 2秒后清除特效
+        setTimeout(() => {
+          if (attackHitEffect.value?.timestamp === hit.timestamp || Date.now() - (attackHitEffect.value?.timestamp || 0) > 1500) {
+            attackHitEffect.value = null
+          }
+        }, 2000)
+      }
+    }
+
+    // 获取火球位置样式
+    const getFireballStyle = (fireball) => {
+      const cellSize = 42
+      const padding = 18
+      const centerOffset = 21
+      return {
+        left: `${fireball.x * cellSize + padding + centerOffset}px`,
+        top: `${fireball.y * cellSize + padding + centerOffset}px`
+      }
     }
     
     // ========== 技能特效位置计算方法 ==========
@@ -1084,6 +1222,23 @@ export default {
           const hasPlayer1 = props.players[0]?.position?.x === x && props.players[0]?.position?.y === y
           const hasPlayer2 = props.players[1]?.position?.x === x && props.players[1]?.position?.y === y
           
+          // 检查草丛
+          const isGrass = props.map.grass?.some(g => g.x === x && g.y === y) || false
+          
+          // 检查沙丘
+          const isSandDune = props.map.sandDunes?.some(d => d.x === x && d.y === y) || false
+          
+          // 检查沙丘残影（旧位置渐隐效果）
+          const isSandDuneGhost = !isSandDune && (props.map.duneGhostPositions?.some(d => d.x === x && d.y === y) || false)
+          
+          // 检查沙丘出现效果（新位置汇聚效果）
+          const isSandDuneAppear = isSandDune && (props.map.duneAppearPositions?.some(d => d.x === x && d.y === y) || false)
+          
+          // 检查玩家隐藏状态（对手在草丛中则隐藏）
+          // 当前玩家是玩家1时，玩家2隐藏；当前玩家是玩家2时，玩家1隐藏
+          const player1Hidden = hasPlayer1 && props.players[0]?.isHidden && !props.isPlayer1
+          const player2Hidden = hasPlayer2 && props.players[1]?.isHidden && props.isPlayer1
+          
           // 检查传送门进口
           const portalEntry = props.map.portals?.find(p => p.entry.x === x && p.entry.y === y)
           // 检查传送门出口
@@ -1117,8 +1272,14 @@ export default {
             y,
             isObstacle,
             isBoundary,
+            isGrass,
+            isSandDune,
+            isSandDuneGhost,
+            isSandDuneAppear,
             hasPlayer1,
             hasPlayer2,
+            player1Hidden,
+            player2Hidden,
             isHighlighted: false,
             inAttackPath,
             isAttackTarget,
@@ -1418,7 +1579,12 @@ export default {
       arrowRainEffect,
       setArrowRainEffect,
       getArrowRainStyle,
-      getArrowRainHitStyle
+      getArrowRainHitStyle,
+      // 火球特效（火山主题随机事件）
+      fireballEffects,
+      setFireballEffect,
+      setFireballHitPlayer,
+      getFireballStyle
     }
   }
 }
@@ -3380,6 +3546,361 @@ export default {
   background: #ff6b6b !important;
 }
 
+/* ========== 草丛样式（森林主题特色） ========== */
+.cell.grass {
+  background: linear-gradient(145deg, #2d5a27 0%, #1e4620 50%, #163a18 100%) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.cell.grass::before {
+  content: '🌿';
+  position: absolute;
+  font-size: 1.3rem;
+  opacity: 0.9;
+  z-index: 1;
+}
+
+.cell.grass:hover {
+  background: linear-gradient(145deg, #3a6b32 0%, #2a5530 50%, #1e4620 100%) !important;
+}
+
+/* 玩家隐藏在草丛中的样式 */
+.cell.player1-hidden,
+.cell.player2-hidden {
+  background: linear-gradient(145deg, #2d5a27 0%, #1e4620 50%, #163a18 100%) !important;
+}
+
+.cell.player1-hidden .player-mark,
+.cell.player2-hidden .player-mark {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 森林主题草丛增强样式 */
+.theme-forest .cell.grass {
+  background: linear-gradient(145deg, #2d5a27 0%, #1e4620 50%, #163a18 100%) !important;
+  box-shadow: inset 0 0 8px rgba(0, 50, 0, 0.4);
+}
+
+.theme-forest .cell.grass::before {
+  content: '🌿';
+  font-size: 1.4rem;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+
+/* 草丛动画效果 */
+.cell.grass::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(100, 200, 100, 0.1) 50%, 
+    transparent 100%
+  );
+  animation: grass-shimmer 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes grass-shimmer {
+  0%, 100% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  50% {
+    transform: translateX(100%);
+    opacity: 1;
+  }
+}
+
+/* ========== 沙丘样式（沙漠主题特色 - CSS纯绘制3D沙丘） ========== */
+
+.cell.sand-dune {
+  position: relative;
+  overflow: hidden;
+  /* 沙丘底色：温暖的沙黄色 + 沙纹纹理 + 光影渐变 */
+  background:
+    /* 顶层：细微沙纹纹理 */
+    repeating-linear-gradient(
+      115deg,
+      transparent 0px,
+      transparent 3px,
+      rgba(255, 235, 180, 0.12) 3px,
+      rgba(255, 235, 180, 0.12) 4px
+    ),
+    /* 中层：沙丘光影渐变 - 左亮右暗模拟3D */
+    linear-gradient(155deg,
+      #d4b060 0%,
+      #c8a048 20%,
+      #b8943c 45%,
+      #a07830 70%,
+      #8a6520 100%
+    ) !important;
+  /* 内阴影增加深度感 */
+  box-shadow:
+    inset 0 2px 4px rgba(255, 220, 150, 0.3),
+    inset 0 -2px 6px rgba(100, 60, 20, 0.4),
+    inset 2px 0 3px rgba(180, 140, 80, 0.2),
+    inset -2px 0 4px rgba(80, 50, 15, 0.3);
+}
+
+/* 沙丘主体3D形状 - 弧形沙丘轮廓 */
+.cell.sand-dune::before {
+  content: '';
+  position: absolute;
+  top: 12%;
+  left: 8%;
+  width: 84%;
+  height: 76%;
+  z-index: 1;
+  /* 沙丘弧形轮廓 - 用圆角模拟 */
+  border-radius: 50% 60% 45% 55% / 40% 35% 60% 50%;
+  /* 沙丘表面光影 */
+  background:
+    /* 高光条 - 顶部受光面 */
+    linear-gradient(160deg,
+      rgba(255, 240, 200, 0.5) 0%,
+      rgba(255, 230, 170, 0.3) 25%,
+      transparent 50%
+    ),
+    /* 阴影面 - 右下暗面 */
+    linear-gradient(160deg,
+      transparent 55%,
+      rgba(80, 50, 15, 0.25) 80%,
+      rgba(60, 35, 10, 0.35) 100%
+    ),
+    /* 基础沙色渐变 */
+    linear-gradient(155deg,
+      #dbb868 0%,
+      #c8a048 30%,
+      #b08838 60%,
+      #987028 100%
+    );
+  filter: drop-shadow(0 1px 2px rgba(60, 30, 5, 0.3));
+}
+
+.cell.sand-dune:hover {
+  /* 悬停时沙丘变亮，模拟光照角度变化 */
+  background:
+    repeating-linear-gradient(
+      115deg,
+      transparent 0px,
+      transparent 3px,
+      rgba(255, 245, 200, 0.15) 3px,
+      rgba(255, 245, 200, 0.15) 4px
+    ),
+    linear-gradient(155deg,
+      #e0c070 0%,
+      #d4ac58 20%,
+      #c49c48 45%,
+      #b08838 70%,
+      #987528 100%
+    ) !important;
+  box-shadow:
+    inset 0 2px 6px rgba(255, 230, 160, 0.4),
+    inset 0 -2px 8px rgba(100, 60, 20, 0.5),
+    inset 2px 0 4px rgba(200, 160, 100, 0.3),
+    inset -2px 0 5px rgba(80, 50, 15, 0.35);
+}
+
+/* 沙漠主题沙丘增强样式 */
+.theme-desert .cell.sand-dune {
+  background:
+    repeating-linear-gradient(
+      115deg,
+      transparent 0px,
+      transparent 3px,
+      rgba(255, 235, 180, 0.12) 3px,
+      rgba(255, 235, 180, 0.12) 4px
+    ),
+    linear-gradient(155deg,
+      #d4b060 0%,
+      #c8a048 20%,
+      #b8943c 45%,
+      #a07830 70%,
+      #8a6520 100%
+    ) !important;
+  box-shadow:
+    inset 0 2px 4px rgba(255, 220, 150, 0.3),
+    inset 0 -2px 6px rgba(100, 60, 20, 0.4),
+    inset 2px 0 3px rgba(180, 140, 80, 0.2),
+    inset -2px 0 4px rgba(80, 50, 15, 0.3);
+}
+
+.theme-desert .cell.sand-dune::before {
+  border-radius: 50% 60% 45% 55% / 40% 35% 60% 50%;
+  background:
+    linear-gradient(160deg,
+      rgba(255, 240, 200, 0.5) 0%,
+      rgba(255, 230, 170, 0.3) 25%,
+      transparent 50%
+    ),
+    linear-gradient(160deg,
+      transparent 55%,
+      rgba(80, 50, 15, 0.25) 80%,
+      rgba(60, 35, 10, 0.35) 100%
+    ),
+    linear-gradient(155deg,
+      #dbb868 0%,
+      #c8a048 30%,
+      #b08838 60%,
+      #987028 100%
+    );
+  filter: drop-shadow(0 1px 2px rgba(60, 30, 5, 0.3));
+}
+
+/* 沙丘飘沙动画效果 - 多层风沙粒子 */
+.cell.sand-dune::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 200%;
+  height: 100%;
+  /* 多层风沙效果 */
+  background:
+    /* 第一层：细沙流 */
+    linear-gradient(90deg,
+      transparent 0%,
+      rgba(210, 180, 120, 0.08) 15%,
+      transparent 30%,
+      rgba(220, 190, 130, 0.12) 45%,
+      transparent 60%,
+      rgba(200, 170, 110, 0.06) 75%,
+      transparent 90%
+    ),
+    /* 第二层：风沙亮条 */
+    linear-gradient(90deg,
+      transparent 0%,
+      rgba(255, 230, 160, 0.05) 20%,
+      transparent 40%,
+      rgba(255, 225, 150, 0.08) 55%,
+      transparent 70%,
+      rgba(255, 220, 140, 0.04) 85%,
+      transparent 100%
+    );
+  animation: sand-drift 5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes sand-drift {
+  0% {
+    transform: translateX(-50%);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  50% {
+    transform: translateX(0%);
+    opacity: 1;
+  }
+  85% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateX(0%);
+    opacity: 0;
+  }
+}
+
+/* ========== 沙丘移动残影特效 ========== */
+
+.cell.sand-dune-ghost {
+  position: relative;
+  overflow: hidden;
+}
+
+.cell.sand-dune-ghost::before {
+  content: '';
+  position: absolute;
+  top: 12%;
+  left: 8%;
+  width: 84%;
+  height: 76%;
+  z-index: 1;
+  border-radius: 50% 60% 45% 55% / 40% 35% 60% 50%;
+  background: linear-gradient(155deg,
+    rgba(210, 180, 120, 0.4) 0%,
+    rgba(190, 160, 100, 0.3) 50%,
+    rgba(170, 140, 80, 0.2) 100%
+  );
+  animation: dune-ghost-fade 1.5s ease-out forwards;
+  pointer-events: none;
+}
+
+.cell.sand-dune-ghost::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(210, 180, 120, 0.3) 0%,
+    rgba(210, 180, 120, 0.1) 40%,
+    transparent 70%
+  );
+  animation: dune-ghost-expand 1.5s ease-out forwards;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes dune-ghost-fade {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+  60% {
+    opacity: 0.4;
+    transform: scale(1.08);
+    filter: blur(1px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.15);
+    filter: blur(3px);
+  }
+}
+
+@keyframes dune-ghost-expand {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+/* 沙丘出现动画（新位置汇聚效果） */
+.cell.sand-dune-appear {
+  animation: dune-appear 0.8s ease-out;
+}
+
+@keyframes dune-appear {
+  0% {
+    filter: blur(4px) brightness(1.3);
+    transform: scale(0.85);
+  }
+  40% {
+    filter: blur(1px) brightness(1.1);
+    transform: scale(1.02);
+  }
+  100% {
+    filter: blur(0px) brightness(1);
+    transform: scale(1);
+  }
+}
+
 /* ========== 陨石特效（男法师技能） ========== */
 .meteor-effect-layer {
   position: absolute;
@@ -4115,5 +4636,556 @@ export default {
 @keyframes ripple-expand-anim {
   0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
   100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+}
+
+/* ========== 寒流特效（冰原主题地图事件） ========== */
+.cold-wave-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 105;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+/* 蓝色半透明遮罩 */
+.cold-wave-mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(ellipse at center,
+    rgba(100, 180, 255, 0.15) 0%,
+    rgba(60, 140, 220, 0.25) 40%,
+    rgba(30, 100, 180, 0.35) 70%,
+    rgba(20, 60, 120, 0.4) 100%
+  );
+  animation: cold-mask-pulse 3s ease-in-out infinite;
+}
+
+@keyframes cold-mask-pulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+/* 冰霜边缘效果 */
+.frost-border {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 4px solid transparent;
+  border-image: linear-gradient(135deg, 
+    rgba(150, 220, 255, 0.8) 0%, 
+    rgba(100, 180, 255, 0.4) 25%,
+    rgba(150, 220, 255, 0.8) 50%,
+    rgba(100, 180, 255, 0.4) 75%,
+    rgba(150, 220, 255, 0.8) 100%
+  ) 1;
+  box-shadow: 
+    inset 0 0 30px rgba(100, 180, 255, 0.3),
+    0 0 20px rgba(100, 180, 255, 0.2);
+  animation: frost-pulse 2s ease-in-out infinite;
+}
+
+@keyframes frost-pulse {
+  0%, 100% { 
+    box-shadow: inset 0 0 30px rgba(100, 180, 255, 0.3), 0 0 20px rgba(100, 180, 255, 0.2);
+  }
+  50% { 
+    box-shadow: inset 0 0 50px rgba(100, 180, 255, 0.5), 0 0 40px rgba(100, 180, 255, 0.4);
+  }
+}
+
+/* 寒风粒子容器 */
+.cold-wave-particles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 寒风粒子 - 30个粒子，每个有不同的位置和动画 */
+.cold-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(200, 230, 255, 0.8);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(150, 200, 255, 0.8);
+  animation: cold-particle-drift 4s linear infinite;
+}
+
+/* 粒子位置和延迟 - 使用CSS变量 */
+.cold-particle-1 { left: 5%; top: 10%; animation-delay: 0s; animation-duration: 3.5s; }
+.cold-particle-2 { left: 15%; top: 25%; animation-delay: -0.5s; animation-duration: 4s; }
+.cold-particle-3 { left: 25%; top: 5%; animation-delay: -1s; animation-duration: 3s; }
+.cold-particle-4 { left: 35%; top: 40%; animation-delay: -1.5s; animation-duration: 4.5s; }
+.cold-particle-5 { left: 45%; top: 15%; animation-delay: -2s; animation-duration: 3.5s; }
+.cold-particle-6 { left: 55%; top: 35%; animation-delay: -2.5s; animation-duration: 4s; }
+.cold-particle-7 { left: 65%; top: 8%; animation-delay: -3s; animation-duration: 3s; }
+.cold-particle-8 { left: 75%; top: 45%; animation-delay: -3.5s; animation-duration: 4.5s; }
+.cold-particle-9 { left: 85%; top: 20%; animation-delay: -0.3s; animation-duration: 3.5s; }
+.cold-particle-10 { left: 95%; top: 30%; animation-delay: -0.8s; animation-duration: 4s; }
+.cold-particle-11 { left: 10%; top: 55%; animation-delay: -1.3s; animation-duration: 3s; }
+.cold-particle-12 { left: 20%; top: 70%; animation-delay: -1.8s; animation-duration: 4.5s; }
+.cold-particle-13 { left: 30%; top: 60%; animation-delay: -2.3s; animation-duration: 3.5s; }
+.cold-particle-14 { left: 40%; top: 85%; animation-delay: -2.8s; animation-duration: 4s; }
+.cold-particle-15 { left: 50%; top: 65%; animation-delay: -3.3s; animation-duration: 3s; }
+.cold-particle-16 { left: 60%; top: 80%; animation-delay: -0.2s; animation-duration: 4.5s; }
+.cold-particle-17 { left: 70%; top: 55%; animation-delay: -0.7s; animation-duration: 3.5s; }
+.cold-particle-18 { left: 80%; top: 75%; animation-delay: -1.2s; animation-duration: 4s; }
+.cold-particle-19 { left: 90%; top: 50%; animation-delay: -1.7s; animation-duration: 3s; }
+.cold-particle-20 { left: 3%; top: 90%; animation-delay: -2.2s; animation-duration: 4.5s; }
+.cold-particle-21 { left: 12%; top: 42%; animation-delay: -2.7s; animation-duration: 3.5s; }
+.cold-particle-22 { left: 22%; top: 95%; animation-delay: -3.2s; animation-duration: 4s; }
+.cold-particle-23 { left: 32%; top: 22%; animation-delay: -0.4s; animation-duration: 3s; }
+.cold-particle-24 { left: 42%; top: 78%; animation-delay: -0.9s; animation-duration: 4.5s; }
+.cold-particle-25 { left: 52%; top: 48%; animation-delay: -1.4s; animation-duration: 3.5s; }
+.cold-particle-26 { left: 62%; top: 92%; animation-delay: -1.9s; animation-duration: 4s; }
+.cold-particle-27 { left: 72%; top: 38%; animation-delay: -2.4s; animation-duration: 3s; }
+.cold-particle-28 { left: 82%; top: 62%; animation-delay: -2.9s; animation-duration: 4.5s; }
+.cold-particle-29 { left: 92%; top: 88%; animation-delay: -3.4s; animation-duration: 3.5s; }
+.cold-particle-30 { left: 50%; top: 50%; animation-delay: -0.1s; animation-duration: 4s; }
+
+@keyframes cold-particle-drift {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.8;
+  }
+  25% {
+    transform: translate(20px, -15px) scale(1.2);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(40px, 5px) scale(0.9);
+    opacity: 0.7;
+  }
+  75% {
+    transform: translate(60px, -10px) scale(1.1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(80px, 0) scale(1);
+    opacity: 0.8;
+  }
+}
+
+/* 寒风流动效果容器 */
+.cold-wind-flow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 寒风流动带 */
+.wind-stream {
+  position: absolute;
+  width: 200%;
+  height: 40px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(150, 200, 255, 0.1) 20%,
+    rgba(180, 220, 255, 0.2) 40%,
+    rgba(150, 200, 255, 0.1) 60%,
+    transparent 80%
+  );
+  filter: blur(8px);
+  animation: wind-flow 5s linear infinite;
+}
+
+.wind-stream-1 {
+  top: 20%;
+  left: -100%;
+  animation-delay: 0s;
+}
+
+.wind-stream-2 {
+  top: 50%;
+  left: -100%;
+  animation-delay: -1.5s;
+  height: 30px;
+  opacity: 0.7;
+}
+
+.wind-stream-3 {
+  top: 75%;
+  left: -100%;
+  animation-delay: -3s;
+  height: 50px;
+  opacity: 0.5;
+}
+
+@keyframes wind-flow {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* 雪花容器 */
+.snowflakes-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 大雪花 */
+.snowflake {
+  position: absolute;
+  font-size: 1.5rem;
+  opacity: 0.8;
+  animation: snowflake-fall 6s linear infinite;
+  text-shadow: 0 0 10px rgba(200, 230, 255, 0.8);
+}
+
+/* 雪花位置和延迟 */
+.snowflake-1 { left: 5%; animation-delay: 0s; animation-duration: 5s; font-size: 1.2rem; }
+.snowflake-2 { left: 12%; animation-delay: -0.8s; animation-duration: 6s; font-size: 1.8rem; }
+.snowflake-3 { left: 20%; animation-delay: -1.6s; animation-duration: 5.5s; font-size: 1.4rem; }
+.snowflake-4 { left: 28%; animation-delay: -2.4s; animation-duration: 6.5s; font-size: 1.6rem; }
+.snowflake-5 { left: 35%; animation-delay: -3.2s; animation-duration: 5s; font-size: 1.3rem; }
+.snowflake-6 { left: 42%; animation-delay: -4s; animation-duration: 6s; font-size: 1.7rem; }
+.snowflake-7 { left: 50%; animation-delay: -0.5s; animation-duration: 5.5s; font-size: 1.5rem; }
+.snowflake-8 { left: 58%; animation-delay: -1.3s; animation-duration: 6.5s; font-size: 1.2rem; }
+.snowflake-9 { left: 65%; animation-delay: -2.1s; animation-duration: 5s; font-size: 1.8rem; }
+.snowflake-10 { left: 72%; animation-delay: -2.9s; animation-duration: 6s; font-size: 1.4rem; }
+.snowflake-11 { left: 80%; animation-delay: -3.7s; animation-duration: 5.5s; font-size: 1.6rem; }
+.snowflake-12 { left: 88%; animation-delay: -4.5s; animation-duration: 6.5s; font-size: 1.3rem; }
+.snowflake-13 { left: 95%; animation-delay: -0.3s; animation-duration: 5s; font-size: 1.5rem; }
+.snowflake-14 { left: 8%; animation-delay: -1.1s; animation-duration: 6s; font-size: 1.7rem; }
+.snowflake-15 { left: 18%; animation-delay: -1.9s; animation-duration: 5.5s; font-size: 1.2rem; }
+.snowflake-16 { left: 25%; animation-delay: -2.7s; animation-duration: 6.5s; font-size: 1.8rem; }
+.snowflake-17 { left: 32%; animation-delay: -3.5s; animation-duration: 5s; font-size: 1.4rem; }
+.snowflake-18 { left: 38%; animation-delay: -4.3s; animation-duration: 6s; font-size: 1.6rem; }
+.snowflake-19 { left: 45%; animation-delay: -0.6s; animation-duration: 5.5s; font-size: 1.3rem; }
+.snowflake-20 { left: 52%; animation-delay: -1.4s; animation-duration: 6.5s; font-size: 1.5rem; }
+
+@keyframes snowflake-fall {
+  0% {
+    transform: translateY(-30px) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  90% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(calc(100% + 30px)) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* ========== 火球特效（火山主题随机事件） ========== */
+.fireball-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 300;
+  overflow: visible;
+}
+
+/* 预警圈 - 红色闪烁 */
+.fireball-warning {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: warning-fade-in 0.3s ease-out forwards;
+}
+
+.warning-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(255, 0, 0, 0.9);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: warning-ring-pulse 0.5s ease-in-out infinite;
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.6), inset 0 0 10px rgba(255, 0, 0, 0.3);
+}
+
+.warning-ring.ring-2 {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  animation-delay: 0.15s;
+  border-color: rgba(255, 100, 0, 0.9);
+  box-shadow: 0 0 12px rgba(255, 100, 0, 0.5), inset 0 0 8px rgba(255, 100, 0, 0.3);
+}
+
+.warning-cross {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+}
+
+.warning-cross::before,
+.warning-cross::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 0, 0, 0.8);
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(255, 0, 0, 0.6);
+}
+
+.warning-cross::before {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  transform: translateY(-50%);
+}
+
+.warning-cross::after {
+  top: 0;
+  left: 50%;
+  width: 3px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+@keyframes warning-fade-in {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes warning-ring-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  50% { transform: translate(-50%, -50%) scale(1.15); opacity: 0.7; }
+}
+
+/* 火球容器 */
+.fireball-container {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  animation: fireball-fall 1.5s ease-in forwards;
+}
+
+/* 火球主体 */
+.fireball-main {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  transform: translate(-50%, -50%);
+}
+
+.fireball-main.fireball-exploding {
+  animation: fireball-explode 0.8s ease-out forwards;
+}
+
+/* 火球核心 - 白黄色核心，多层发光 */
+.fireball-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, #ffffff 0%, #fffacd 25%, #ffd700 50%, #ff8c00 75%, #ff4500 100%);
+  box-shadow: 0 0 15px #ffffff, 0 0 30px #ffd700, 0 0 50px #ff8c00, 0 0 70px #ff4500;
+  animation: fireball-core-pulse 0.2s ease-in-out infinite;
+}
+
+/* 火球外层 - 橙红色外层火焰 */
+.fireball-outer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, transparent 20%, rgba(255, 140, 0, 0.9) 45%, rgba(255, 69, 0, 0.7) 70%, transparent 100%);
+  animation: fireball-outer-flicker 0.15s ease-in-out infinite;
+  filter: blur(3px);
+}
+
+/* 火球光晕 - 大范围光晕 */
+.fireball-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(255, 140, 0, 0.3) 0%, rgba(255, 69, 0, 0.15) 30%, transparent 60%);
+  animation: fireball-glow-pulse 0.3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes fireball-core-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.1); }
+}
+
+@keyframes fireball-outer-flicker {
+  0%, 100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 0.8; }
+  33% { transform: translate(-50%, -50%) scale(1.05) rotate(3deg); opacity: 1; }
+  66% { transform: translate(-50%, -50%) scale(0.95) rotate(-2deg); opacity: 0.9; }
+}
+
+@keyframes fireball-glow-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+  50% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
+}
+
+/* 火球拖尾 - 火焰尾迹 */
+.fireball-trail {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30px;
+  height: 80px;
+  pointer-events: none;
+}
+
+.trail-flame {
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  height: 40px;
+  border-radius: 50%;
+  filter: blur(4px);
+  animation: trail-flame-flicker 0.2s ease-in-out infinite alternate;
+}
+
+.trail-1 { left: 0; height: 35px; background: rgba(255, 69, 0, 0.8); animation-delay: 0s; }
+.trail-2 { left: 4px; height: 45px; background: rgba(255, 140, 0, 0.7); animation-delay: -0.03s; }
+.trail-3 { left: 8px; height: 50px; background: rgba(255, 200, 0, 0.6); animation-delay: -0.06s; }
+.trail-4 { left: 12px; height: 55px; background: rgba(255, 220, 100, 0.8); animation-delay: -0.09s; }
+.trail-5 { left: 16px; height: 50px; background: rgba(255, 200, 0, 0.6); animation-delay: -0.12s; }
+.trail-6 { left: 20px; height: 45px; background: rgba(255, 140, 0, 0.7); animation-delay: -0.15s; }
+.trail-7 { left: 24px; height: 40px; background: rgba(255, 100, 0, 0.8); animation-delay: -0.18s; }
+.trail-8 { left: 28px; height: 30px; background: rgba(255, 69, 0, 0.6); animation-delay: -0.21s; }
+
+@keyframes trail-flame-flicker {
+  0% { transform: scaleY(1) scaleX(1); opacity: 0.7; }
+  100% { transform: scaleY(1.15) scaleX(0.9); opacity: 1; }
+}
+
+/* 火球爆炸特效 */
+.fireball-explosion {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* 爆炸核心 */
+.explosion-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, #ffffff 0%, #fffacd 20%, #ffd700 40%, #ff8c00 60%, #ff4500 80%, transparent 100%);
+  animation: explosion-core-expand 0.6s ease-out forwards;
+  box-shadow: 0 0 30px #ffffff, 0 0 60px #ffd700, 0 0 90px #ff8c00;
+}
+
+/* 爆炸冲击环 */
+.explosion-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 80px;
+  height: 80px;
+  border: 4px solid rgba(255, 140, 0, 0.8);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: explosion-ring-expand 0.8s ease-out forwards;
+  box-shadow: 0 0 20px rgba(255, 140, 0, 0.6);
+}
+
+/* 爆炸粒子 */
+.explosion-particles {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+}
+
+.explosion-spark {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: #ff8c00;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #ff4500, 0 0 12px #ffd700;
+  animation: explosion-spark-fly 0.8s ease-out forwards;
+}
+
+.espark-1 { --angle: 0deg; --dist: 40px; animation-delay: 0s; }
+.espark-2 { --angle: 30deg; --dist: 50px; animation-delay: 0.02s; }
+.espark-3 { --angle: 60deg; --dist: 35px; animation-delay: 0.04s; }
+.espark-4 { --angle: 90deg; --dist: 55px; animation-delay: 0.06s; }
+.espark-5 { --angle: 120deg; --dist: 42px; animation-delay: 0.08s; }
+.espark-6 { --angle: 150deg; --dist: 48px; animation-delay: 0.1s; }
+.espark-7 { --angle: 180deg; --dist: 38px; animation-delay: 0.12s; }
+.espark-8 { --angle: 210deg; --dist: 52px; animation-delay: 0.14s; }
+.espark-9 { --angle: 240deg; --dist: 45px; animation-delay: 0.16s; }
+.espark-10 { --angle: 270deg; --dist: 58px; animation-delay: 0.18s; }
+.espark-11 { --angle: 300deg; --dist: 40px; animation-delay: 0.2s; }
+.espark-12 { --angle: 330deg; --dist: 50px; animation-delay: 0.22s; }
+
+@keyframes fireball-fall {
+  0% { transform: translate(-50%, -350px); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translate(-50%, -50%); opacity: 1; }
+}
+
+@keyframes fireball-explode {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  50% { transform: translate(-50%, -50%) scale(1.5); opacity: 0.8; }
+  100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+}
+
+@keyframes explosion-core-expand {
+  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+  50% { transform: translate(-50%, -50%) scale(2); opacity: 0.8; }
+  100% { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+}
+
+@keyframes explosion-ring-expand {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+}
+
+@keyframes explosion-spark-fly {
+  0% { transform: translate(-50%, -50%) rotate(var(--angle)) translateX(0); opacity: 1; }
+  70% { opacity: 0.6; }
+  100% { transform: translate(-50%, -50%) rotate(var(--angle)) translateX(var(--dist)); opacity: 0; }
 }
 </style>

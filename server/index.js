@@ -94,6 +94,31 @@ io.on('connection', (socket) => {
     }
   })
   
+  // ========== 单人模式（AI对战）==========
+  socket.on('start_solo_game', (data) => {
+    console.log(`[单人] ${socket.id} 开始单人模式, 难度: ${data?.difficulty || 'normal'}`)
+    
+    const avatarId = data?.avatarId || null
+    const difficulty = data?.difficulty || 'normal'
+    
+    // 创建房间和Match
+    const roomCode = roomManager.createRoom(socket.id)
+    socket.join(roomCode)
+    
+    const match = matchManager.createMatch(roomCode)
+    
+    // 设置人类玩家为玩家1
+    matchManager.setPlayer(roomCode, socket.id, 0, avatarId)
+    
+    // 初始化AI为玩家2
+    const aiSocketId = match.initAI(difficulty)
+    
+    // 手动调用startGame，因为AI是通过initAI添加的，不会触发setPlayer中的自动调用
+    match.startGame()
+    
+    console.log(`[单人] 房间 ${roomCode} 创建成功, AI角色: ${match.aiPlayer.avatarId}`)
+  })
+  
   // 地图大小选择（房主）
   socket.on('map_size_selected', (data) => {
     console.log(`[事件] ${socket.id} 选择地图配置:`, data)

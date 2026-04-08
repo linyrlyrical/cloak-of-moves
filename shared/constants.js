@@ -107,6 +107,13 @@ export const MAP_THEMES = {
     playerColors: {
       player1: '#4ade80',
       player2: '#f87171'
+    },
+    // 森林特色：草丛配置
+    grassEnabled: true,
+    grassStyle: {
+      color: 'rgba(34, 139, 34, 0.6)',
+      borderColor: 'rgba(46, 125, 50, 0.8)',
+      icon: '🌿'
     }
   },
   desert: {
@@ -141,6 +148,13 @@ export const MAP_THEMES = {
     playerColors: {
       player1: '#fbbf24',
       player2: '#60a5fa'
+    },
+    // 沙漠特色：启用可移动沙丘生成
+    sandDuneEnabled: true,
+    sandDuneStyle: {
+      color: 'rgba(210, 180, 140, 0.6)',
+      borderColor: 'rgba(194, 149, 110, 0.7)',
+      icon: '🏜️'
     }
   },
   ice: {
@@ -381,6 +395,48 @@ export function countThemeShapeCells(layout) {
   }
   return count;
 }
+
+// ==================== 地图随机事件配置 ====================
+
+export const MAP_EVENTS = {
+  forest: {
+    id: 'forest',
+    name: '草丛隐藏',
+    icon: '🌿',
+    description: '角色进入草丛后隐藏身形，对手无法看到你的位置',
+    trigger: 'passive'  // 被动触发
+  },
+  desert: {
+    id: 'desert',
+    name: '流沙迁徙',
+    icon: '🏜️',
+    description: '沙丘每回合结束后随机移动位置',
+    trigger: 'active',
+    effect: 'moveSandDunes'
+  },
+  ice: {
+    id: 'ice',
+    name: '寒流冰冻',
+    icon: '🧊',
+    description: '出牌阶段开始时，15%概率触发寒流，本回合所有牌效果无效',
+    trigger: 'chance',  // 概率触发
+    chance: 0.15
+  },
+  volcano: {
+    id: 'volcano',
+    name: '火球坠落',
+    icon: '☄️',
+    description: '出牌阶段开始时，随机火球坠落攻击地图上的格子',
+    trigger: 'active'  // 主动触发
+  },
+  ruins: {
+    id: 'ruins',
+    name: '技能封印',
+    icon: '🔒',
+    description: '古城中，双方玩家的所有角色技能均无法生效',
+    trigger: 'passive'
+  }
+};
 
 // ==================== 角色技能配置 ====================
 

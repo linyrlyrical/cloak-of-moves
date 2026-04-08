@@ -16,6 +16,18 @@
             <span class="theme-name" :style="{ background: currentTheme?.nameColor || 'linear-gradient(135deg, #667eea, #48bb78)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }">{{ currentTheme?.name || '未知地图' }}</span>
           </div>
           <div class="map-name-desc">{{ currentTheme?.description || '' }}</div>
+          <!-- 随机事件提示 -->
+          <Transition name="event-fade">
+            <div v-if="currentMapEvent && showMapName" class="map-event-info">
+              <div class="event-divider"></div>
+              <div class="event-label">⚡ 随机事件</div>
+              <div class="event-content">
+                <span class="event-icon">{{ currentMapEvent.icon }}</span>
+                <span class="event-name">{{ currentMapEvent.name }}</span>
+              </div>
+              <div class="event-desc">{{ currentMapEvent.description }}</div>
+            </div>
+          </Transition>
         </div>
       </div>
     </Transition>
@@ -222,6 +234,11 @@
       
       <!-- 初始选择匹配方式 -->
       <div v-if="!selectedMatchMode" class="match-mode-buttons">
+        <div class="mode-btn solo-mode-btn" @click="selectMatchMode('solo')">
+          <div class="mode-icon">🤖</div>
+          <div class="mode-title">单人模式</div>
+          <div class="mode-desc">与AI对战</div>
+        </div>
         <div class="mode-btn room-mode-btn" @click="selectMatchMode('room')">
           <div class="mode-icon">🏠</div>
           <div class="mode-title">房间号匹配</div>
@@ -299,6 +316,8 @@
               class="btn theme-option-btn"
               :class="{ 'selected': selectedTheme === theme.id }"
               @click="selectedTheme = theme.id"
+              @mouseenter="handleThemeMouseEnter(theme.id, $event)"
+              @mouseleave="handleThemeMouseLeave"
             >
               {{ theme.icon }} {{ theme.name }}
             </button>
@@ -381,6 +400,19 @@
 
     <!-- 游戏主界面 -->
     <div v-else-if="gameState.phase !== 'game_end'" class="game-screen">
+      <!-- 寒流全屏雪花效果 -->
+      <div v-if="showColdWaveEffect" class="cold-wave-fullscreen">
+        <div class="cold-wave-mask"></div>
+        <div class="snowflakes-fullscreen">
+          <div v-for="i in 30" :key="i" class="snowflake-full" :class="`snowflake-${i}`">❄️</div>
+        </div>
+        <div class="cold-wind-flow">
+          <div class="wind-stream wind-stream-1"></div>
+          <div class="wind-stream wind-stream-2"></div>
+          <div class="wind-stream wind-stream-3"></div>
+        </div>
+      </div>
+      
       <!-- 游戏内粒子背景层 -->
       <div class="game-particles-bg">
         <div 
@@ -428,10 +460,11 @@
                   'active-skill': player1Skill.skillType === 'active',
                   'passive-skill': player1Skill.skillType === 'passive',
                   'on-cooldown': player1SkillCooldown > 0,
-                  'can-select': isPlayer1 && player1Skill.skillType === 'active' && player1SkillCooldown === 0 && isSelectingPhase,
-                  'selected': isPlayer1 && skillSelected
+                  'can-select': !skillSealed && isPlayer1 && player1Skill.skillType === 'active' && player1SkillCooldown === 0 && isSelectingPhase,
+                  'selected': isPlayer1 && skillSelected,
+                  'sealed': skillSealed
                 }"
-                @click="handleSkillClick(0)"
+                @click="!skillSealed && handleSkillClick(0)"
               >
                 <div class="skill-icon">{{ player1Skill.skillIcon }}</div>
                 <div class="skill-name">{{ player1Skill.skillName }}</div>
@@ -441,8 +474,13 @@
                 </div>
                 <div class="skill-description">{{ player1Skill.description }}</div>
                 <!-- 冷却遮罩 -->
-                <div v-if="player1SkillCooldown > 0" class="cooldown-overlay">
+                <div v-if="player1SkillCooldown > 0 && !skillSealed" class="cooldown-overlay">
                   <span class="cooldown-number">{{ player1SkillCooldown }}</span>
+                </div>
+                <!-- 技能封印遮罩 -->
+                <div v-if="skillSealed" class="seal-overlay">
+                  <span class="seal-icon">🔒</span>
+                  <span class="seal-text">技能封印</span>
                 </div>
               </div>
             </div>
@@ -479,6 +517,7 @@
             :theme="currentTheme"
             :fog-enabled="gameState.fogEnabled"
             :my-skill="mySkill"
+            :show-cold-wave="showColdWaveEffect"
           />
         </div>
         
@@ -513,10 +552,11 @@
                   'active-skill': player2Skill.skillType === 'active',
                   'passive-skill': player2Skill.skillType === 'passive',
                   'on-cooldown': player2SkillCooldown > 0,
-                  'can-select': !isPlayer1 && player2Skill.skillType === 'active' && player2SkillCooldown === 0 && isSelectingPhase,
-                  'selected': !isPlayer1 && skillSelected
+                  'can-select': !skillSealed && !isPlayer1 && player2Skill.skillType === 'active' && player2SkillCooldown === 0 && isSelectingPhase,
+                  'selected': !isPlayer1 && skillSelected,
+                  'sealed': skillSealed
                 }"
-                @click="handleSkillClick(1)"
+                @click="!skillSealed && handleSkillClick(1)"
               >
                 <div class="skill-icon">{{ player2Skill.skillIcon }}</div>
                 <div class="skill-name">{{ player2Skill.skillName }}</div>
@@ -526,8 +566,13 @@
                 </div>
                 <div class="skill-description">{{ player2Skill.description }}</div>
                 <!-- 冷却遮罩 -->
-                <div v-if="player2SkillCooldown > 0" class="cooldown-overlay">
+                <div v-if="player2SkillCooldown > 0 && !skillSealed" class="cooldown-overlay">
                   <span class="cooldown-number">{{ player2SkillCooldown }}</span>
+                </div>
+                <!-- 技能封印遮罩 -->
+                <div v-if="skillSealed" class="seal-overlay">
+                  <span class="seal-icon">🔒</span>
+                  <span class="seal-text">技能封印</span>
                 </div>
               </div>
             </div>
@@ -613,7 +658,8 @@
                 'selected': selectedCards.includes(index),
                 'disabled': isDealingAnimating,
                 'placeholder': card === null,
-                'skill-card-in-selection': card && card.isSkillCard
+                'skill-card-in-selection': card && card.isSkillCard,
+                'sealed-card': card && card.isSkillCard && skillSealed
               }"
               @click="toggleCardSelection(index)"
             >
@@ -622,6 +668,11 @@
                 <span class="card-name">{{ card.name }}</span>
                 <span v-if="card && card.isSkillCard" class="skill-badge">技能</span>
               </template>
+              <!-- 选牌区技能牌封印遮罩 -->
+              <div v-if="card && card.isSkillCard && skillSealed" class="card-seal-overlay">
+                <span class="seal-icon">🔒</span>
+                <span class="seal-text">封印</span>
+              </div>
             </div>
           </div>
           <button 
@@ -691,6 +742,10 @@
 
         <!-- 出牌阶段 -->
         <div v-else-if="gameState.phase === 'playing'" class="card-playing">
+          <!-- 寒流冻结提示 -->
+          <div v-if="showColdWaveEffect" class="cold-wave-warning">
+            ❄️ 寒流侵袭！本回合所有出牌效果被冻结！
+          </div>
           <!-- 出牌展示区：显示双方已打出的牌（左侧己方，右侧对手） -->
           <div class="played-cards-area" ref="playedCardsAreaRef">
             <div class="played-cards-row">
@@ -702,10 +757,17 @@
                     v-for="(card, idx) in playedCardsDisplay.my" 
                     :key="idx"
                     class="card played-card my-card"
-                    :class="{ 'current-playing': idx === currentPlayIndex && isMyTurn }"
+                    :class="{ 
+                      'current-playing': idx === currentPlayIndex && isMyTurn,
+                      'frozen': showColdWaveEffect 
+                    }"
                   >
                     <span class="card-icon">{{ card.icon }}</span>
                     <span class="card-name">{{ card.name }}</span>
+                    <!-- 冻结覆盖层 -->
+                    <div v-if="showColdWaveEffect" class="card-frozen-overlay">
+                      <span class="frozen-icon">❄️</span>
+                    </div>
                   </div>
                   <div v-for="i in (3 - playedCardsDisplay.my.length)" :key="'empty-my-' + i" class="card empty-card">
                     <span class="card-icon">?</span>
@@ -721,10 +783,17 @@
                     v-for="(card, idx) in playedCardsDisplay.opponent" 
                     :key="idx"
                     class="card played-card opponent-card"
-                    :class="{ 'current-playing': idx === currentPlayIndex && !isMyTurn }"
+                    :class="{ 
+                      'current-playing': idx === currentPlayIndex && !isMyTurn,
+                      'frozen': showColdWaveEffect 
+                    }"
                   >
                     <span class="card-icon">{{ card.icon }}</span>
                     <span class="card-name">{{ card.name }}</span>
+                    <!-- 冻结覆盖层 -->
+                    <div v-if="showColdWaveEffect" class="card-frozen-overlay">
+                      <span class="frozen-icon">❄️</span>
+                    </div>
                   </div>
                   <div v-for="i in (3 - playedCardsDisplay.opponent.length)" :key="'empty-op-' + i" class="card empty-card">
                     <span class="card-icon">?</span>
@@ -845,6 +914,22 @@
       @reject="onRejectInvitation"
     />
     
+    <!-- 随机事件悬停浮窗 -->
+    <Transition name="tooltip-fade">
+      <div v-if="showEventTooltip && hoveredEvent" class="event-tooltip" :style="{ left: tooltipPosition.x + 'px', top: tooltipPosition.y + 'px' }">
+        <div class="event-tooltip-header">
+          <span class="event-tooltip-icon">{{ hoveredEvent.icon }}</span>
+          <span class="event-tooltip-name">{{ hoveredEvent.name }}</span>
+        </div>
+        <div class="event-tooltip-desc">{{ hoveredEvent.description }}</div>
+        <div class="event-tooltip-trigger">
+          <span v-if="hoveredEvent.trigger === 'passive'" class="trigger-tag passive">被动效果</span>
+          <span v-else-if="hoveredEvent.trigger === 'chance'" class="trigger-tag chance">概率触发 {{ Math.round(hoveredEvent.chance * 100) }}%</span>
+          <span v-else-if="hoveredEvent.trigger === 'active'" class="trigger-tag active">每回合触发</span>
+        </div>
+      </div>
+    </Transition>
+    
     <!-- 女盗贼技能：隔墙有眼 - 查看对手手牌弹窗 -->
     <div v-if="showWallSkillReveal && wallSkillRevealedCards" class="wall-skill-modal">
       <div class="wall-skill-content">
@@ -885,7 +970,7 @@ import SettingsPanel from './components/SettingsPanel.vue'
 import MatchModeSelect from './components/MatchModeSelect.vue'
 import IdMatchLobby from './components/IdMatchLobby.vue'
 import InvitationDialog from './components/InvitationDialog.vue'
-import { GAME_CONFIG, MAP_THEMES, THEME_LIST, THEME_SHAPE_LAYOUTS, countThemeShapeCells, CHARACTER_SKILLS } from '@shared/constants.js'
+import { GAME_CONFIG, MAP_THEMES, THEME_LIST, THEME_SHAPE_LAYOUTS, countThemeShapeCells, CHARACTER_SKILLS, MAP_EVENTS } from '@shared/constants.js'
 import { getServerUrl } from './config.js'
 import audioManager from './utils/audioManager'
 
@@ -943,6 +1028,9 @@ export default {
     
     const player1SkillCooldown = ref(0)
     const player2SkillCooldown = ref(0)
+    
+    // 古城技能封印状态
+    const skillSealed = ref(false)
     const skillSelected = ref(false)
     
     const currentPlayIndex = ref(0)
@@ -988,6 +1076,7 @@ export default {
     
     // 飞牌动画状态（纯视觉效果）
     const flyingCard = ref(null)
+    const showColdWaveEffect = ref(false)  // 寒流特效状态
     
     // 发牌动画状态
     const dealingCards = ref([])  // 正在发的牌
@@ -1056,6 +1145,55 @@ export default {
     // 设置面板相关
     const showSettings = ref(false)
     
+    // ==================== 随机事件悬停浮窗相关 ====================
+    const hoveredThemeId = ref(null)  // 当前悬停的主题ID
+    const showEventTooltip = ref(false)  // 是否显示随机事件浮窗
+    const tooltipPosition = ref({ x: 0, y: 0 })  // 浮窗位置
+    let hoverTimeout = null  // 悬停延迟定时器
+    
+    // 当前悬停的随机事件信息
+    const hoveredEvent = computed(() => {
+      if (!hoveredThemeId.value || !MAP_EVENTS[hoveredThemeId.value]) return null
+      return MAP_EVENTS[hoveredThemeId.value]
+    })
+    
+    // 当前地图主题对应的随机事件信息
+    const currentMapEvent = computed(() => {
+      if (!currentTheme.value || !MAP_EVENTS[currentTheme.value.id]) return null
+      return MAP_EVENTS[currentTheme.value.id]
+    })
+    
+    // 鼠标进入主题按钮 - 显示随机事件浮窗
+    const handleThemeMouseEnter = (themeId, event) => {
+      // 清除之前的延迟定时器
+      if (hoverTimeout) {
+        clearTimeout(hoverTimeout)
+      }
+      // 设置0.5秒延迟后显示浮窗
+      hoverTimeout = setTimeout(() => {
+        hoveredThemeId.value = themeId
+        // 计算浮窗位置（在按钮下方10px处，水平居中）
+        const rect = event.target.getBoundingClientRect()
+        tooltipPosition.value = {
+          x: rect.left + rect.width / 2,
+          y: rect.bottom + 10
+        }
+        showEventTooltip.value = true
+      }, 500)
+    }
+    
+    // 鼠标离开主题按钮 - 隐藏随机事件浮窗
+    const handleThemeMouseLeave = () => {
+      // 清除定时器
+      if (hoverTimeout) {
+        clearTimeout(hoverTimeout)
+        hoverTimeout = null
+      }
+      // 隐藏浮窗并重置悬停主题ID
+      showEventTooltip.value = false
+      hoveredThemeId.value = null
+    }
+    
     // ==================== ID匹配相关状态 ====================
     const selectedMatchMode = ref('') // '' | 'room' | 'id'
     const showIdMatchLobby = ref(false)
@@ -1063,8 +1201,20 @@ export default {
     const currentInvitation = ref(null)
     const idMatchLobbyRef = ref(null)
     
+    // 是否为单人模式
+    const isSoloMode = ref(false)
+    
     // 选择匹配模式
     const selectMatchMode = (mode) => {
+      if (mode === 'solo') {
+        // 单人模式：直接发送开始请求
+        isSoloMode.value = true
+        socket.value.emit('start_solo_game', { 
+          avatarId: myAvatarId.value,
+          difficulty: 'normal'
+        })
+        return
+      }
       selectedMatchMode.value = mode
       if (mode === 'id') {
         showIdMatchLobby.value = true
@@ -1724,6 +1874,17 @@ const currentTurn = computed(() => {
         errorMessage.value = msg
       })
       
+      // 单人模式开始
+      socket.value.on('solo_game_started', (data) => {
+        console.log('[客户端] 单人模式开始:', data)
+        currentRoom.value = data.roomCode
+        isPlayer1.value = data.isPlayer1
+        isSoloMode.value = true
+        // 进入地图配置阶段（单人模式下人类玩家就是房主）
+        gameState.value.phase = 'configuring'
+        creatorId.value = socketId.value  // 单人模式自己就是房主
+      })
+      
       // 进入地图配置阶段
       socket.value.on('enter_configuring', (data) => {
         console.log('[客户端] 进入地图配置阶段:', data)
@@ -1782,6 +1943,11 @@ const currentTurn = computed(() => {
         if (data.player2Skill) {
           player2Skill.value = data.player2Skill
           player2SkillCooldown.value = data.player2SkillCooldown || 0
+        }
+        // 古城技能封印状态
+        if (data.skillSealed !== undefined) {
+          skillSealed.value = data.skillSealed
+          console.log('[客户端] 技能封印状态:', skillSealed.value)
         }
         // 保存主题数据并显示地图名称
         if (data.theme) {
@@ -2263,6 +2429,91 @@ const currentTurn = computed(() => {
         }
       })
       
+      // 寒流事件 - 冰原主题随机事件
+      socket.value.on('cold_wave_triggered', (data) => {
+        console.log('[客户端] 寒流触发:', data)
+        showColdWaveEffect.value = true
+        gameMessage.value = data.message
+        messageType.value = 'warning'
+        // 寒流特效持续整个出牌阶段，在 round_end 事件中关闭
+      })
+      
+      // 沙丘移动事件（沙漠主题地图事件）
+      socket.value.on('sand_dunes_moved', (data) => {
+        console.log('[客户端] 沙丘移动:', data)
+        // 更新地图中的沙丘位置
+        if (data.sandDunes && gameState.value.map) {
+          gameState.value.map.sandDunes = data.sandDunes
+        }
+        // 设置沙丘残影效果（旧位置渐隐 + 新位置汇聚）
+        if (data.movedDunes && data.movedDunes.length > 0) {
+          // 记录残影位置（旧位置）和出现位置（新位置）
+          const duneGhostPositions = data.movedDunes.map(d => d.from)
+          const duneAppearPositions = data.movedDunes.map(d => d.to)
+          // 存储到地图对象中供 GameBoard 使用
+          gameState.value.map.duneGhostPositions = duneGhostPositions
+          gameState.value.map.duneAppearPositions = duneAppearPositions
+          // 1.5秒后清除残影
+          setTimeout(() => {
+            if (gameState.value.map.duneGhostPositions === duneGhostPositions) {
+              gameState.value.map.duneGhostPositions = []
+              gameState.value.map.duneAppearPositions = []
+            }
+          }, 1500)
+        }
+        if (data.message) {
+          gameMessage.value = data.message
+          messageType.value = 'warning'
+        }
+      })
+
+      // 火球事件（火山主题随机事件）
+      socket.value.on('fireball_event', (data) => {
+        console.log('[客户端] 火球触发:', data)
+        
+        // 显示火球特效
+        if (gameBoardRef.value) {
+          gameBoardRef.value.setFireballEffect(data)
+        }
+        
+        // 显示消息提示
+        gameMessage.value = data.message || '🔥 天降火球！障碍物被摧毁！'
+        messageType.value = 'info'
+      })
+
+      // 火球伤害结果（更新地图和玩家HP）
+      socket.value.on('fireball_damage', (data) => {
+        console.log('[客户端] 火球伤害结果:', data)
+        
+        // 更新地图数据
+        if (data.map && gameState.value.map) {
+          gameState.value.map.obstacles = data.map.obstacles
+          gameState.value.map.portals = data.map.portals
+        }
+        
+        // 更新玩家HP（火球击中玩家）
+        if (data.hitPlayers && data.hitPlayers.length > 0) {
+          for (const hit of data.hitPlayers) {
+            // 更新玩家HP
+            if (gameState.value.players && gameState.value.players[hit.playerIndex]) {
+              if (!hit.defended) {
+                gameState.value.players[hit.playerIndex].hp -= 1
+              }
+            }
+            // 通知GameBoard播放火球击中玩家特效
+            if (gameBoardRef.value) {
+              gameBoardRef.value.setFireballHitPlayer(hit)
+            }
+          }
+        }
+      })
+
+      // 卡牌被冻结事件
+      socket.value.on('card_frozen', (data) => {
+        console.log('[客户端] 卡牌被冻结:', data)
+        // 可以在这里添加冻结特效
+      })
+      
       socket.value.on('game_message', (data) => {
         gameMessage.value = data.message
         
@@ -2303,6 +2554,9 @@ const currentTurn = computed(() => {
       socket.value.on('round_end', (data) => {
         console.log('[客户端] 回合结束:', data)
         
+        // 关闭寒流特效（回合结束时）
+        showColdWaveEffect.value = false
+        
         // 显示新回合提示
         nextRound.value = (data.currentRound || gameState.value.currentRound + 1)
         showRoundTransition.value = true
@@ -2323,6 +2577,10 @@ const currentTurn = computed(() => {
         }
         if (data.player2SkillCooldown !== undefined) {
           player2SkillCooldown.value = data.player2SkillCooldown
+        }
+        // 更新技能封印状态
+        if (data.skillSealed !== undefined) {
+          skillSealed.value = data.skillSealed
         }
         myHandCards.value = []
         currentCards.value = []
@@ -2449,6 +2707,12 @@ const currentTurn = computed(() => {
     
     // 卡牌选择（统一处理技能牌和普通牌）
     const toggleCardSelection = (index) => {
+      // 古城封印：不允许选择被封印的技能牌
+      const card = currentCards.value[index]
+      if (card && card.isSkillCard && skillSealed.value) {
+        console.log('[封印] 技能已被封印，无法选择')
+        return
+      }
       // 只有在选择阶段才能选择
       if (gameState.value.phase !== 'selecting_priority' && gameState.value.phase !== 'selecting_normal') return
       
@@ -2461,8 +2725,7 @@ const currentTurn = computed(() => {
       if (gameState.value.phase === 'selecting_priority' && !isPriorityPlayer.value) return
       if (gameState.value.phase === 'selecting_normal' && isPriorityPlayer.value) return
       
-      // 检查点击的是否是技能牌
-      const card = currentCards.value[index]
+      // 检查点击的是否是技能牌（card已在上面的封印检查中定义）
       const isSkillCard = card && card.isSkillCard
       
       // 统一选择逻辑：技能牌和普通牌一起计算，最多选3张
@@ -2773,6 +3036,8 @@ const currentTurn = computed(() => {
       flyingCard.value = null
       // 重置地图主题，确保主界面背景恢复蓝紫色
       currentTheme.value = null
+      // 重置单人模式标志
+      isSoloMode.value = false
     }
     
     // 请求再来一局
@@ -2958,6 +3223,7 @@ const currentTurn = computed(() => {
       // 飞牌动画
       flyingCard,
       flyingCardStyle,
+      showColdWaveEffect,
       // 发牌动画
       showDealingAnimation,
       dealingCards,
@@ -3019,6 +3285,7 @@ const currentTurn = computed(() => {
       // 取消等待
       cancelWaiting,
       // 技能相关
+      skillSealed,
       skillSelected,
       canSelectSkillInSelection,
       handleSkillClick,
@@ -3036,7 +3303,15 @@ const currentTurn = computed(() => {
       player2Skill,
       player1SkillCooldown,
       player2SkillCooldown,
-      isSelectingPhase
+      isSelectingPhase,
+      // 随机事件悬停浮窗相关
+      hoveredThemeId,
+      showEventTooltip,
+      tooltipPosition,
+      hoveredEvent,
+      currentMapEvent,
+      handleThemeMouseEnter,
+      handleThemeMouseLeave
     }
   }
 }
@@ -3225,6 +3500,15 @@ html, body {
 .mode-btn:hover {
   transform: translateY(-8px);
   box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+}
+
+.solo-mode-btn {
+  border-color: #ed8936;
+}
+
+.solo-mode-btn:hover {
+  background: linear-gradient(145deg, rgba(237, 137, 54, 0.1), #fff);
+  border-color: #dd6b20;
 }
 
 .room-mode-btn {
@@ -3832,6 +4116,7 @@ html, body {
 
 .game-message {
   position: fixed;
+  white-space: nowrap !important;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -5777,6 +6062,119 @@ html, body {
   filter: grayscale(0.5);
 }
 
+/* ==================== 古城技能封印样式 ==================== */
+
+/* 封印状态 - 灰度化 */
+.skill-card.sealed {
+  filter: grayscale(1);
+  opacity: 0.5;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+.skill-card.sealed:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* 封印遮罩层 */
+.seal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  z-index: 10;
+}
+
+.seal-icon {
+  font-size: 2rem;
+  animation: seal-lock-pulse 2s ease-in-out infinite;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+
+.seal-text {
+  font-size: 0.65rem;
+  color: #ccc;
+  font-weight: bold;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  letter-spacing: 1px;
+}
+
+@keyframes seal-lock-pulse {
+  0%, 100% { 
+    opacity: 0.8; 
+    transform: scale(1); 
+  }
+  50% { 
+    opacity: 1; 
+    transform: scale(1.1); 
+  }
+}
+
+/* 选牌区技能牌封印样式 */
+.skill-card-in-selection.sealed-card {
+  filter: grayscale(1);
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+  position: relative;
+}
+
+.skill-card-in-selection.sealed-card:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* 手牌区技能牌封印样式 */
+.card.sealed-skill-card {
+  filter: grayscale(1);
+  opacity: 0.5;
+  position: relative;
+  cursor: not-allowed;
+}
+
+.card.sealed-skill-card:hover {
+  transform: none;
+}
+
+/* 封印锁图标（选牌区/手牌区用，较小） */
+.card-seal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.card-seal-overlay .seal-icon {
+  font-size: 1.4rem;
+  animation: seal-lock-pulse 2s ease-in-out infinite;
+}
+
+.card-seal-overlay .seal-text {
+  font-size: 0.5rem;
+  color: #ccc;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
 /* 冷却遮罩层 */
 .cooldown-overlay {
   position: absolute;
@@ -5796,5 +6194,469 @@ html, body {
   font-weight: bold;
   color: white;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* ==================== 随机事件悬停浮窗样式 ==================== */
+
+.event-tooltip {
+  position: fixed;
+  transform: translateX(-50%);
+  background: linear-gradient(145deg, rgba(30, 30, 50, 0.98), rgba(20, 20, 35, 0.98));
+  border: 2px solid rgba(102, 126, 234, 0.6);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  min-width: 220px;
+  max-width: 280px;
+  z-index: 6000;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(102, 126, 234, 0.3);
+  pointer-events: none;
+}
+
+.event-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.event-tooltip-icon {
+  font-size: 1.5rem;
+}
+
+.event-tooltip-name {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+}
+
+.event-tooltip-desc {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.4;
+  margin-bottom: 0.6rem;
+}
+
+.event-tooltip-trigger {
+  display: flex;
+  justify-content: center;
+}
+
+.trigger-tag {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.trigger-tag.passive {
+  background: linear-gradient(135deg, #48bb78, #38a169);
+  color: white;
+}
+
+.trigger-tag.chance {
+  background: linear-gradient(135deg, #ed8936, #dd6b20);
+  color: white;
+}
+
+.trigger-tag.active {
+  background: linear-gradient(135deg, #e53e3e, #c53030);
+  color: white;
+}
+
+/* 浮窗淡入淡出动画 */
+.tooltip-fade-enter-active {
+  animation: tooltipFadeIn 0.2s ease-out;
+}
+
+.tooltip-fade-leave-active {
+  animation: tooltipFadeOut 0.15s ease-in;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes tooltipFadeOut {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-5px);
+  }
+}
+
+/* ==================== 地图名称界面中的随机事件提示样式 ==================== */
+
+.map-event-info {
+  margin-top: 1.5rem;
+  padding: 1rem 1.2rem;
+  background: linear-gradient(145deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+  border-radius: 12px;
+  border: 2px solid rgba(102, 126, 234, 0.5);
+  animation: eventInfoAppear 0.4s ease-out 0.3s both;
+}
+
+@keyframes eventInfoAppear {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.event-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  margin-bottom: 0.8rem;
+}
+
+.event-label {
+  font-size: 0.9rem;
+  color: #ffd700;
+  font-weight: 500;
+  margin-bottom: 0.6rem;
+  text-align: center;
+}
+
+.event-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.event-content .event-icon {
+  font-size: 1.8rem;
+}
+
+.event-content .event-name {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+.map-event-info .event-desc {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* 事件淡入淡出动画 */
+.event-fade-enter-active {
+  animation: eventFadeIn 0.3s ease-out;
+}
+
+.event-fade-leave-active {
+  animation: eventFadeOut 0.2s ease-in;
+}
+
+@keyframes eventFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes eventFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ==================== 寒流全屏特效样式 ==================== */
+
+/* 寒流全屏覆盖层 */
+.cold-wave-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 100;
+  overflow: hidden;
+}
+
+/* 蓝色半透明遮罩 */
+.cold-wave-mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(ellipse at center, 
+    rgba(100, 149, 237, 0.15) 0%,
+    rgba(70, 130, 180, 0.2) 50%,
+    rgba(65, 105, 225, 0.25) 100%
+  );
+  animation: cold-pulse 3s ease-in-out infinite;
+}
+
+@keyframes cold-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.9; }
+}
+
+/* 全屏雪花容器 */
+.snowflakes-fullscreen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 全屏雪花 - 30个不同大小和速度 */
+.snowflake-full {
+  position: absolute;
+  top: -50px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.5rem;
+  text-shadow: 0 0 10px rgba(200, 230, 255, 0.8);
+  animation: snowfall linear infinite;
+  pointer-events: none;
+}
+
+/* 为每个雪花设置不同的位置、大小、速度和延迟 */
+.snowflake-full.snowflake-1 { left: 3%; font-size: 1.2rem; animation-duration: 8s; animation-delay: 0s; }
+.snowflake-full.snowflake-2 { left: 7%; font-size: 1.8rem; animation-duration: 10s; animation-delay: 0.5s; }
+.snowflake-full.snowflake-3 { left: 12%; font-size: 1.5rem; animation-duration: 7s; animation-delay: 1s; }
+.snowflake-full.snowflake-4 { left: 18%; font-size: 2rem; animation-duration: 12s; animation-delay: 0.3s; }
+.snowflake-full.snowflake-5 { left: 23%; font-size: 1.3rem; animation-duration: 9s; animation-delay: 1.5s; }
+.snowflake-full.snowflake-6 { left: 28%; font-size: 1.7rem; animation-duration: 11s; animation-delay: 0.8s; }
+.snowflake-full.snowflake-7 { left: 33%; font-size: 1.4rem; animation-duration: 8s; animation-delay: 2s; }
+.snowflake-full.snowflake-8 { left: 38%; font-size: 2.2rem; animation-duration: 13s; animation-delay: 0.2s; }
+.snowflake-full.snowflake-9 { left: 43%; font-size: 1.6rem; animation-duration: 9s; animation-delay: 1.2s; }
+.snowflake-full.snowflake-10 { left: 48%; font-size: 1.9rem; animation-duration: 10s; animation-delay: 0.6s; }
+.snowflake-full.snowflake-11 { left: 52%; font-size: 1.3rem; animation-duration: 7s; animation-delay: 1.8s; }
+.snowflake-full.snowflake-12 { left: 57%; font-size: 2.1rem; animation-duration: 12s; animation-delay: 0.4s; }
+.snowflake-full.snowflake-13 { left: 62%; font-size: 1.5rem; animation-duration: 8s; animation-delay: 2.2s; }
+.snowflake-full.snowflake-14 { left: 67%; font-size: 1.8rem; animation-duration: 11s; animation-delay: 0.7s; }
+.snowflake-full.snowflake-15 { left: 72%; font-size: 1.4rem; animation-duration: 9s; animation-delay: 1.4s; }
+.snowflake-full.snowflake-16 { left: 77%; font-size: 2rem; animation-duration: 13s; animation-delay: 0.1s; }
+.snowflake-full.snowflake-17 { left: 80%; font-size: 1.6rem; animation-duration: 8s; animation-delay: 1.9s; }
+.snowflake-full.snowflake-18 { left: 84%; font-size: 1.2rem; animation-duration: 10s; animation-delay: 0.9s; }
+.snowflake-full.snowflake-19 { left: 88%; font-size: 1.7rem; animation-duration: 11s; animation-delay: 2.5s; }
+.snowflake-full.snowflake-20 { left: 92%; font-size: 1.9rem; animation-duration: 9s; animation-delay: 0.3s; }
+.snowflake-full.snowflake-21 { left: 5%; font-size: 1.1rem; animation-duration: 14s; animation-delay: 2.1s; }
+.snowflake-full.snowflake-22 { left: 15%; font-size: 1.4rem; animation-duration: 8s; animation-delay: 1.1s; }
+.snowflake-full.snowflake-23 { left: 25%; font-size: 1.8rem; animation-duration: 12s; animation-delay: 0.5s; }
+.snowflake-full.snowflake-24 { left: 35%; font-size: 1.3rem; animation-duration: 7s; animation-delay: 1.7s; }
+.snowflake-full.snowflake-25 { left: 45%; font-size: 2.2rem; animation-duration: 11s; animation-delay: 0.2s; }
+.snowflake-full.snowflake-26 { left: 55%; font-size: 1.2rem; animation-duration: 9s; animation-delay: 2.3s; }
+.snowflake-full.snowflake-27 { left: 65%; font-size: 1.6rem; animation-duration: 10s; animation-delay: 0.8s; }
+.snowflake-full.snowflake-28 { left: 75%; font-size: 1.9rem; animation-duration: 13s; animation-delay: 1.3s; }
+.snowflake-full.snowflake-29 { left: 85%; font-size: 1.4rem; animation-duration: 8s; animation-delay: 2s; }
+.snowflake-full.snowflake-30 { left: 95%; font-size: 1.7rem; animation-duration: 11s; animation-delay: 0.6s; }
+
+@keyframes snowfall {
+  0% {
+    transform: translateY(-50px) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* 寒风流动效果 */
+.cold-wind-flow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.wind-stream {
+  position: absolute;
+  height: 3px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(200, 230, 255, 0.3) 20%, 
+    rgba(255, 255, 255, 0.5) 50%, 
+    rgba(200, 230, 255, 0.3) 80%, 
+    transparent 100%
+  );
+  animation: wind-flow 4s linear infinite;
+  border-radius: 2px;
+}
+
+.wind-stream-1 {
+  top: 20%;
+  width: 200px;
+  animation-delay: 0s;
+}
+
+.wind-stream-2 {
+  top: 50%;
+  width: 150px;
+  animation-delay: 1.5s;
+}
+
+.wind-stream-3 {
+  top: 80%;
+  width: 180px;
+  animation-delay: 3s;
+}
+
+@keyframes wind-flow {
+  0% {
+    left: -200px;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+/* 寒流警告提示 */
+.cold-wave-warning {
+  text-align: center;
+  padding: 0.8rem 1.5rem;
+  background: linear-gradient(145deg, rgba(100, 149, 237, 0.9), rgba(70, 130, 180, 0.95));
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  border: 2px solid rgba(200, 230, 255, 0.5);
+  animation: warning-pulse 1.5s ease-in-out infinite;
+  box-shadow: 0 4px 20px rgba(100, 149, 237, 0.5);
+}
+
+@keyframes warning-pulse {
+  0%, 100% {
+    box-shadow: 0 4px 20px rgba(100, 149, 237, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 4px 30px rgba(100, 149, 237, 0.8);
+    transform: scale(1.02);
+  }
+}
+
+/* 打出的牌冻结效果 - 纯冰蓝色覆盖 */
+.played-card.frozen {
+  /* 完全移除滤镜，避免色相旋转导致颜色不一致 */
+  filter: none !important;
+  /* 高不透明度冰蓝色背景直接覆盖原色 */
+  background: linear-gradient(145deg, 
+    rgba(30, 144, 255, 0.88) 0%, 
+    rgba(65, 105, 225, 0.92) 50%,
+    rgba(100, 149, 237, 0.88) 100%) !important;
+  border-color: #1e90ff !important;  /* 道奇蓝 */
+  /* 强制文字为白色 */
+  color: white !important;
+  box-shadow: 
+    0 0 25px rgba(30, 144, 255, 0.8),
+    0 0 50px rgba(65, 105, 225, 0.5),
+    inset 0 0 20px rgba(135, 206, 250, 0.4) !important;
+  animation: frozen-card-pulse 2s ease-in-out infinite;
+}
+
+/* 冻结卡牌内的图标和文字颜色 */
+.played-card.frozen .card-icon {
+  color: white !important;
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.8)) !important;
+}
+
+.played-card.frozen .card-name {
+  color: white !important;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5) !important;
+}
+
+@keyframes frozen-card-pulse {
+  0%, 100% {
+    box-shadow: 
+      0 0 20px rgba(65, 105, 225, 0.7),
+      0 0 40px rgba(30, 144, 255, 0.4),
+      inset 0 0 15px rgba(135, 206, 250, 0.3);
+  }
+  50% {
+    box-shadow: 
+      0 0 30px rgba(65, 105, 225, 0.9),
+      0 0 50px rgba(30, 144, 255, 0.6),
+      inset 0 0 20px rgba(135, 206, 250, 0.5);
+  }
+}
+
+/* 冻结覆盖层 - 冰蓝色调 */
+.card-frozen-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  /* 冰蓝色渐变，模拟冰晶效果 */
+  background: linear-gradient(135deg, 
+    rgba(65, 105, 225, 0.5) 0%, 
+    rgba(30, 144, 255, 0.35) 30%,
+    rgba(70, 130, 180, 0.4) 60%,
+    rgba(135, 206, 250, 0.3) 100%);
+  border-radius: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  /* 冰晶纹理效果 */
+  backdrop-filter: blur(1px);
+}
+
+.card-frozen-overlay .frozen-icon {
+  font-size: 2.5rem;
+  animation: frozen-icon-float 1.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 15px rgba(135, 206, 250, 1)) drop-shadow(0 0 5px white);
+}
+
+@keyframes frozen-icon-float {
+  0%, 100% { 
+    opacity: 0.85; 
+    transform: scale(1) rotate(0deg); 
+    filter: drop-shadow(0 0 15px rgba(135, 206, 250, 1)) drop-shadow(0 0 5px white);
+  }
+  50% { 
+    opacity: 1; 
+    transform: scale(1.15) rotate(10deg); 
+    filter: drop-shadow(0 0 20px rgba(65, 105, 225, 1)) drop-shadow(0 0 8px white);
+  }
 }
 </style>

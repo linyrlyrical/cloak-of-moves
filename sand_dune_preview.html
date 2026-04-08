@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>沙丘贴图方案预览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    background: #1a1a2e;
+    color: #eee;
+    font-family: 'Microsoft YaHei', sans-serif;
+    padding: 40px;
+  }
+  
+  h1 {
+    text-align: center;
+    margin-bottom: 10px;
+    font-size: 28px;
+    color: #f0d080;
+  }
+  
+  .subtitle {
+    text-align: center;
+    color: #999;
+    margin-bottom: 40px;
+    font-size: 14px;
+  }
+  
+  .schemes {
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  
+  .scheme {
+    background: #252540;
+    border-radius: 16px;
+    padding: 30px;
+    min-width: 320px;
+    flex: 1;
+    max-width: 420px;
+  }
+  
+  .scheme h2 {
+    font-size: 20px;
+    margin-bottom: 6px;
+    color: #f0d080;
+  }
+  
+  .scheme .desc {
+    font-size: 13px;
+    color: #aaa;
+    margin-bottom: 20px;
+    line-height: 1.6;
+  }
+  
+  .scheme.recommended {
+    border: 2px solid #f0d080;
+    box-shadow: 0 0 20px rgba(240, 208, 128, 0.15);
+  }
+  
+  .scheme.recommended h2::after {
+    content: ' ⭐推荐';
+    font-size: 14px;
+    color: #ff9800;
+  }
+  
+  .label {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 8px;
+    margin-top: 16px;
+  }
+  
+  /* ========== 沙漠地面背景 ========== */
+  .desert-bg {
+    background:
+      repeating-linear-gradient(
+        115deg,
+        transparent 0px, transparent 3px,
+        rgba(255, 235, 180, 0.06) 3px, rgba(255, 235, 180, 0.06) 4px
+      ),
+      linear-gradient(155deg, #3a2e1a 0%, #2e2415 50%, #25200f 100%);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  
+  /* ========== 通用格子尺寸 ========== */
+  .cell {
+    position: relative;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  
+  .cell-60 { width: 60px; height: 60px; }
+  .cell-70 { width: 70px; height: 70px; }
+  .cell-80 { width: 80px; height: 80px; }
+  
+  /* ========== 当前实现（对照） ========== */
+  .current .sand-dune {
+    position: relative;
+    overflow: hidden;
+    background:
+      repeating-linear-gradient(
+        115deg,
+        transparent 0px, transparent 3px,
+        rgba(255, 235, 180, 0.12) 3px, rgba(255, 235, 180, 0.12) 4px
+      ),
+      linear-gradient(155deg,
+        #d4b060 0%, #c8a048 20%, #b8943c 45%, #a07830 70%, #8a6520 100%
+      ) !important;
+    box-shadow:
+      inset 0 2px 4px rgba(255, 220, 150, 0.3),
+      inset 0 -2px 6px rgba(100, 60, 20, 0.4),
+      inset 2px 0 3px rgba(180, 140, 80, 0.2),
+      inset -2px 0 4px rgba(80, 50, 15, 0.3);
+  }
+  
+  .current .sand-dune::before {
+    content: '';
+    position: absolute;
+    top: 12%; left: 8%;
+    width: 84%; height: 76%;
+    z-index: 1;
+    border-radius: 50% 60% 45% 55% / 40% 35% 60% 50%;
+    background:
+      linear-gradient(160deg, rgba(255, 240, 200, 0.5) 0%, rgba(255, 230, 170, 0.3) 25%, transparent 50%),
+      linear-gradient(160deg, transparent 55%, rgba(80, 50, 15, 0.25) 80%, rgba(60, 35, 10, 0.35) 100%),
+      linear-gradient(155deg, #dbb868 0%, #c8a048 30%, #b08838 60%, #987028 100%);
+    filter: drop-shadow(0 1px 2px rgba(60, 30, 5, 0.3));
+  }
+  
+  .current .sand-dune::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 200%; height: 100%;
+    background:
+      linear-gradient(90deg,
+        transparent 0%, rgba(210, 180, 120, 0.08) 15%, transparent 30%,
+        rgba(220, 190, 130, 0.12) 45%, transparent 60%,
+        rgba(200, 170, 110, 0.06) 75%, transparent 90%
+      ),
+      linear-gradient(90deg,
+        transparent 0%, rgba(255, 230, 160, 0.05) 20%, transparent 40%,
+        rgba(255, 225, 150, 0.08) 55%, transparent 70%,
+        rgba(255, 220, 140, 0.04) 85%, transparent 100%
+      );
+    animation: sand-drift 5s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 2;
+  }
+  
+  @keyframes sand-drift {
+    0% { transform: translateX(-50%); opacity: 0; }
+    15% { opacity: 0.7; }
+    50% { transform: translateX(0%); opacity: 1; }
+    85% { opacity: 0.7; }
+    100% { transform: translateX(0%); opacity: 0; }
+  }
+  
+  /* ========== 方案A：等轴测3D沙丘 ========== */
+  .scheme-a .sand-dune {
+    position: relative;
+    overflow: visible !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  
+  /* 沙丘底部阴影 */
+  .scheme-a .sand-dune::before {
+    content: '';
+    position: absolute;
+    bottom: 4%;
+    left: 5%;
+    width: 90%;
+    height: 22%;
+    background: radial-gradient(ellipse at center, rgba(30, 20, 5, 0.5) 0%, transparent 70%);
+    z-index: 0;
+    border-radius: 50%;
+  }
+  
+  /* 沙丘主体 + 风沙动画 */
+  .scheme-a .sand-dune::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+    /* 顶面 + 迎光面 + 背光面 三合一绘制 */
+    background:
+      /* 顶面高光 */
+      linear-gradient(170deg, rgba(255, 245, 210, 0.6) 0%, transparent 30%),
+      /* 沙丘主体渐变：亮→暗 */
+      linear-gradient(145deg,
+        #ecd48e 0%,
+        #dbb868 20%,
+        #c9a24e 40%,
+        #a07830 65%,
+        #6d4f1a 100%
+      );
+    /* 等轴测沙丘形状 */
+    clip-path: polygon(
+      50% 5%,      /* 顶部中心 */
+      88% 35%,     /* 右上 */
+      92% 70%,     /* 右下（背光面底部） */
+      55% 92%,     /* 底部中心偏右 */
+      8% 75%,      /* 左下（迎光面底部） */
+      12% 40%      /* 左上 */
+    );
+    /* 风沙纹理叠加在形状上 */
+    filter: drop-shadow(2px 3px 3px rgba(30, 15, 0, 0.4));
+    animation: scheme-a-shimmer 4s ease-in-out infinite;
+  }
+  
+  /* 风沙粒子层 - 需要额外元素，用box-shadow模拟 */
+  .scheme-a .wind-sand {
+    position: absolute;
+    top: 25%;
+    left: -20%;
+    width: 140%;
+    height: 50%;
+    z-index: 2;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  
+  .scheme-a .wind-sand::before {
+    content: '';
+    position: absolute;
+    width: 3px; height: 2px;
+    border-radius: 50%;
+    background: rgba(230, 200, 140, 0.5);
+    box-shadow:
+      8px 3px 0 rgba(210, 180, 120, 0.4),
+      20px 8px 0 rgba(230, 200, 140, 0.3),
+      35px 2px 0 rgba(200, 170, 110, 0.5),
+      50px 10px 0 rgba(220, 190, 130, 0.3),
+      65px 5px 0 rgba(210, 180, 120, 0.4),
+      78px 12px 0 rgba(230, 200, 140, 0.3),
+      90px 3px 0 rgba(200, 170, 110, 0.5),
+      105px 8px 0 rgba(220, 190, 130, 0.2);
+    animation: wind-blow 3s linear infinite;
+  }
+  
+  @keyframes scheme-a-shimmer {
+    0%, 100% { filter: drop-shadow(2px 3px 3px rgba(30, 15, 0, 0.4)) brightness(1); }
+    50% { filter: drop-shadow(2px 3px 3px rgba(30, 15, 0, 0.4)) brightness(1.05); }
+  }
+  
+  @keyframes wind-blow {
+    0% { transform: translateX(-30px); opacity: 0; }
+    20% { opacity: 0.8; }
+    80% { opacity: 0.6; }
+    100% { transform: translateX(40px); opacity: 0; }
+  }
+  
+  /* ========== 方案B：多层波浪沙纹 ========== */
+  .scheme-b .sand-dune {
+    position: relative;
+    overflow: hidden;
+    background:
+      /* 沙纹波纹 - 多层叠加 */
+      radial-gradient(ellipse 120% 30% at 50% 70%, rgba(139, 115, 85, 0.4) 0%, transparent 100%),
+      radial-gradient(ellipse 100% 25% at 30% 50%, rgba(201, 169, 110, 0.3) 0%, transparent 100%),
+      radial-gradient(ellipse 80% 20% at 70% 35%, rgba(228, 208, 160, 0.3) 0%, transparent 100%),
+      /* 沙丘高光弧线 */
+      radial-gradient(ellipse 70% 15% at 45% 30%, rgba(255, 240, 200, 0.35) 0%, transparent 100%),
+      /* 基础沙色 */
+      linear-gradient(160deg,
+        #e0c878 0%,
+        #d4b060 25%,
+        #c49a48 50%,
+        #a88038 75%,
+        #8b6914 100%
+      ) !important;
+    box-shadow:
+      inset 0 3px 6px rgba(255, 230, 170, 0.25),
+      inset 0 -4px 8px rgba(80, 50, 10, 0.35),
+      0 2px 6px rgba(30, 15, 0, 0.3);
+  }
+  
+  .scheme-b .sand-dune::before {
+    content: '';
+    position: absolute;
+    top: 8%; left: 5%;
+    width: 90%; height: 84%;
+    z-index: 1;
+    border-radius: 45% 55% 50% 50% / 35% 40% 60% 55%;
+    background:
+      /* 沙纹线条 */
+      repeating-linear-gradient(
+        165deg,
+        transparent 0px,
+        transparent 5px,
+        rgba(255, 240, 200, 0.08) 5px,
+        rgba(255, 240, 200, 0.08) 6px
+      ),
+      /* 高光 */
+      radial-gradient(ellipse 60% 30% at 40% 35%, rgba(255, 245, 215, 0.4) 0%, transparent 100%),
+      /* 暗面 */
+      radial-gradient(ellipse 50% 40% at 65% 70%, rgba(80, 50, 10, 0.2) 0%, transparent 100%);
+    border: 1px solid rgba(180, 140, 60, 0.2);
+  }
+  
+  .scheme-b .sand-dune::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -50%;
+    width: 200%; height: 100%;
+    background:
+      linear-gradient(90deg,
+        transparent 0%, rgba(255, 230, 160, 0.06) 10%, transparent 20%,
+        rgba(255, 235, 170, 0.08) 30%, transparent 40%,
+        rgba(255, 225, 150, 0.05) 55%, transparent 65%,
+        rgba(255, 230, 160, 0.07) 75%, transparent 85%,
+        rgba(255, 225, 150, 0.04) 95%, transparent 100%
+      );
+    animation: sand-drift-b 6s linear infinite;
+    pointer-events: none;
+    z-index: 2;
+  }
+  
+  @keyframes sand-drift-b {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(50%); }
+  }
+  
+  /* ========== 方案C：简约图标风 ========== */
+  .scheme-c .sand-dune {
+    position: relative;
+    overflow: hidden;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  
+  /* 地面阴影 */
+  .scheme-c .sand-dune::before {
+    content: '';
+    position: absolute;
+    bottom: 8%;
+    left: 10%;
+    width: 80%;
+    height: 16%;
+    background: radial-gradient(ellipse at center, rgba(30, 20, 5, 0.35) 0%, transparent 70%);
+    border-radius: 50%;
+    z-index: 0;
+  }
+  
+  /* 沙丘主体 */
+  .scheme-c .sand-dune::after {
+    content: '';
+    position: absolute;
+    top: 15%;
+    left: 10%;
+    width: 80%;
+    height: 72%;
+    z-index: 1;
+    /* 半月形沙丘 */
+    clip-path: polygon(
+      0% 100%,
+      0% 65%,
+      5% 45%,
+      15% 28%,
+      30% 15%,
+      50% 5%,
+      70% 12%,
+      82% 25%,
+      90% 42%,
+      95% 60%,
+      100% 80%,
+      100% 100%
+    );
+    background:
+      /* 亮面/暗面分界线 */
+      linear-gradient(135deg,
+        #ecd48e 0%,
+        #dbb868 30%,
+        #c49a48 50%,
+        #8b6914 51%,
+        #6d4f1a 100%
+      );
+    filter: drop-shadow(1px 2px 2px rgba(30, 15, 0, 0.35));
+  }
+  
+  /* ========== 残影效果预览 ========== */
+  .ghost-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  
+  .ghost-label {
+    font-size: 11px;
+    color: #888;
+    width: 50px;
+    text-align: right;
+  }
+  
+  /* 通用残影（渐隐旧位置） */
+  .sand-dune-ghost {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse at center, rgba(200, 170, 100, 0.25) 0%, transparent 70%);
+    border: 1px dashed rgba(200, 170, 100, 0.3);
+  }
+  
+  .sand-dune-ghost::before {
+    content: '';
+    position: absolute;
+    top: 15%; left: 10%;
+    width: 80%; height: 70%;
+    border-radius: 50% 55% 50% 45% / 40% 35% 55% 50%;
+    background: rgba(200, 170, 100, 0.2);
+    animation: ghost-fade 1.5s ease-out forwards;
+  }
+  
+  .sand-dune-ghost::after {
+    content: '';
+    position: absolute;
+    width: 4px; height: 3px;
+    border-radius: 50%;
+    background: rgba(210, 180, 120, 0.4);
+    top: 40%; left: 30%;
+    box-shadow:
+      15px -8px 0 rgba(210, 180, 120, 0.3),
+      30px 5px 0 rgba(210, 180, 120, 0.2),
+      45px -3px 0 rgba(210, 180, 120, 0.25),
+      -5px 10px 0 rgba(210, 180, 120, 0.15);
+    animation: ghost-particles 1.5s ease-out forwards;
+  }
+  
+  @keyframes ghost-fade {
+    0% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.2); }
+  }
+  
+  @keyframes ghost-particles {
+    0% { transform: translate(0, 0); opacity: 0.6; }
+    100% { transform: translate(20px, -10px); opacity: 0; }
+  }
+  
+  /* 通用出现效果（新位置汇聚） */
+  .sand-dune-appear {
+    animation: dune-appear 0.8s ease-out;
+  }
+  
+  @keyframes dune-appear {
+    0% { transform: scale(0.7); opacity: 0.3; filter: brightness(1.5); }
+    60% { transform: scale(1.05); opacity: 0.9; filter: brightness(1.1); }
+    100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+  }
+  
+  /* ========== 方案A增强残影 ========== */
+  .scheme-a .sand-dune-ghost {
+    background: transparent !important;
+    border: none !important;
+  }
+  
+  .scheme-a .sand-dune-ghost::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background:
+      linear-gradient(145deg,
+        rgba(236, 212, 142, 0.25) 0%,
+        rgba(219, 184, 104, 0.15) 40%,
+        rgba(109, 79, 26, 0.1) 100%
+      );
+    clip-path: polygon(
+      50% 5%, 88% 35%, 92% 70%, 55% 92%, 8% 75%, 12% 40%
+    );
+    animation: ghost-fade 1.5s ease-out forwards;
+  }
+  
+  .scheme-a .sand-dune-ghost::after {
+    content: '';
+    position: absolute;
+    width: 3px; height: 2px;
+    border-radius: 50%;
+    background: rgba(230, 200, 140, 0.5);
+    top: 30%; left: 20%;
+    box-shadow:
+      10px 5px 0 rgba(210, 180, 120, 0.4),
+      25px -3px 0 rgba(230, 200, 140, 0.3),
+      40px 8px 0 rgba(200, 170, 110, 0.35),
+      -5px 15px 0 rgba(210, 180, 120, 0.25);
+    animation: ghost-particles 1.5s ease-out forwards;
+  }
+  
+  /* ========== 方案C增强残影 ========== */
+  .scheme-c .sand-dune-ghost {
+    background: transparent !important;
+    border: none !important;
+  }
+  
+  .scheme-c .sand-dune-ghost::before {
+    content: '';
+    position: absolute;
+    top: 15%; left: 10%;
+    width: 80%; height: 72%;
+    clip-path: polygon(
+      0% 100%, 0% 65%, 5% 45%, 15% 28%, 30% 15%, 50% 5%,
+      70% 12%, 82% 25%, 90% 42%, 95% 60%, 100% 80%, 100% 100%
+    );
+    background: linear-gradient(135deg,
+      rgba(236, 212, 142, 0.2) 0%,
+      rgba(196, 154, 72, 0.15) 50%,
+      rgba(109, 79, 26, 0.1) 100%
+    );
+    animation: ghost-fade 1.5s ease-out forwards;
+  }
+  
+  /* ========== 对比表格 ========== */
+  .comparison {
+    margin-top: 40px;
+    background: #252540;
+    border-radius: 16px;
+    padding: 24px;
+    overflow-x: auto;
+  }
+  
+  .comparison h2 {
+    font-size: 20px;
+    color: #f0d080;
+    margin-bottom: 16px;
+  }
+  
+  .comparison table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  
+  .comparison th {
+    background: #1a1a2e;
+    padding: 10px 16px;
+    text-align: left;
+    color: #f0d080;
+    border-bottom: 2px solid #3a3a5e;
+  }
+  
+  .comparison td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #2a2a4e;
+    color: #ccc;
+  }
+  
+  .comparison tr:hover td {
+    background: rgba(240, 208, 128, 0.05);
+  }
+  
+  .tag-good { color: #4caf50; font-weight: bold; }
+  .tag-mid { color: #ff9800; font-weight: bold; }
+  .tag-bad { color: #f44336; font-weight: bold; }
+  
+  /* ========== 动画演示区域 ========== */
+  .demo-section {
+    margin-top: 40px;
+    background: #252540;
+    border-radius: 16px;
+    padding: 24px;
+  }
+  
+  .demo-section h2 {
+    font-size: 20px;
+    color: #f0d080;
+    margin-bottom: 16px;
+  }
+  
+  .demo-grid {
+    display: flex;
+    gap: 40px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  
+  .demo-col {
+    text-align: center;
+  }
+  
+  .demo-col .label {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #aaa;
+  }
+  
+  .demo-cells {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  
+  .demo-arrow {
+    color: #f0d080;
+    font-size: 20px;
+    animation: arrow-pulse 1s ease-in-out infinite;
+  }
+  
+  @keyframes arrow-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+  
+  /* 普通障碍物对照 */
+  .obstacle-normal {
+    background:
+      linear-gradient(135deg, #5a4a3a 0%, #4a3a2a 50%, #3a2a1a 100%);
+    box-shadow: inset 0 1px 3px rgba(255, 255, 255, 0.1), inset 0 -1px 3px rgba(0, 0, 0, 0.3);
+    border-radius: 3px;
+  }
+  
+  /* 普通地面 */
+  .ground-normal {
+    background:
+      repeating-linear-gradient(115deg, transparent 0px, transparent 3px, rgba(255, 235, 180, 0.04) 3px, rgba(255, 235, 180, 0.04) 4px),
+      linear-gradient(155deg, #3a2e1a 0%, #2e2415 100%);
+    border: 1px solid rgba(100, 80, 40, 0.2);
+  }
+  
+  /* 循环播放残影动画 */
+  .loop-ghost {
+    animation: loop-ghost-cycle 3s ease-in-out infinite;
+  }
+  
+  @keyframes loop-ghost-cycle {
+    0%, 30% { opacity: 1; }
+    50%, 80% { opacity: 0; transform: scale(1.15); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  
+  .loop-appear {
+    animation: loop-appear-cycle 3s ease-in-out infinite;
+  }
+  
+  @keyframes loop-appear-cycle {
+    0%, 30% { transform: scale(1); opacity: 1; filter: brightness(1); }
+    50% { transform: scale(0.7); opacity: 0.3; filter: brightness(1.5); }
+    80%, 100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+  }
+</style>
+</head>
+<body>
+
+<h1>🏜️ 沙丘贴图方案预览</h1>
+<p class="subtitle">三种CSS纯绘制方案对比 · 含残影动画效果 · 60/70/80px 格子尺寸</p>
+
+<div class="schemes">
+
+  <!-- 当前实现 -->
+  <div class="scheme current">
+    <h2>当前实现（对照）</h2>
+    <p class="desc">linear-gradient + border-radius + inset shadow 模拟3D。<br>问题：颜色偏暗，立体感不明显，像有纹理的方块。</p>
+    
+    <div class="label">60px · 70px · 80px</div>
+    <div class="desert-bg">
+      <div class="cell cell-60 sand-dune"></div>
+      <div class="cell cell-70 sand-dune"></div>
+      <div class="cell cell-80 sand-dune"></div>
+    </div>
+    
+    <div class="label">与障碍物/地面对比</div>
+    <div class="desert-bg">
+      <div class="cell cell-70 ground-normal"></div>
+      <div class="cell cell-70 obstacle-normal"></div>
+      <div class="cell cell-70 sand-dune"></div>
+    </div>
+  </div>
+
+  <!-- 方案A -->
+  <div class="scheme scheme-a recommended">
+    <h2>方案A：等轴测3D沙丘</h2>
+    <p class="desc">clip-path 裁出六面体轮廓，三面明暗渐变 + 底部阴影 + 风沙粒子。<br>立体感最强，一眼辨识。</p>
+    
+    <div class="label">60px · 70px · 80px</div>
+    <div class="desert-bg">
+      <div class="cell cell-60 sand-dune" style="position:relative">
+        <div class="wind-sand"></div>
+      </div>
+      <div class="cell cell-70 sand-dune" style="position:relative">
+        <div class="wind-sand"></div>
+      </div>
+      <div class="cell cell-80 sand-dune" style="position:relative">
+        <div class="wind-sand"></div>
+      </div>
+    </div>
+    
+    <div class="label">与障碍物/地面对比</div>
+    <div class="desert-bg">
+      <div class="cell cell-70 ground-normal"></div>
+      <div class="cell cell-70 obstacle-normal"></div>
+      <div class="cell cell-70 sand-dune" style="position:relative">
+        <div class="wind-sand"></div>
+      </div>
+    </div>
+    
+    <div class="label">残影效果</div>
+    <div class="desert-bg">
+      <div class="cell cell-70 sand-dune-ghost loop-ghost"></div>
+      <span style="color:#888;font-size:12px">→</span>
+      <div class="cell cell-70 sand-dune loop-appear" style="position:relative">
+        <div class="wind-sand"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 方案B -->
+  <div class="scheme scheme-b">
+    <h2>方案B：多层波浪沙纹</h2>
+    <p class="desc">多层 radial-gradient 叠加模拟沙浪纹理，俯视角风格。<br>优雅但3D感较弱，与棋盘视角一致。</p>
+    
+    <div class="label">60px · 70px · 80px</div>
+    <div class="desert-bg">
+      <div class="cell cell-60 sand-dune"></div>
+      <div class="cell cell-70 sand-dune"></div>
+      <div class="cell cell-80 sand-dune"></div>
+    </div>
+    
+    <div class="label">与障碍物/地面对比</div>
+    <div class="desert-bg">
+      <div class="cell cell-70 ground-normal"></div>
+      <div class="cell cell-70 obstacle-normal"></div>
+      <div class="cell cell-70 sand-dune"></div>
+    </div>
+    
+    <div class="label">残影效果</div>
+    <div class="desert-bg">
+      <div class="cell cell-70 sand-dune-ghost loop-ghost"></div>
+      <span style="color:#888;font-size:12px">→</span>
+      <div class="cell cell-70 sand-dune loop-appear"></div>
+    </div>
+  </div>
+
+  <!-- 方案C -->
+  <div class="scheme scheme-c">
+    <h2>方案C：简约图标风</h2>
+    <p class="desc">clip-path 裁出半月形剪影，2色亮暗渐变 + 底部阴影。<br>最简洁，小尺寸辨识度好。</p>
+    
+    <div class="label">60px · 70px · 80px</div>
+    <div class="desert-bg">
+      <div class="cell cell-60 sand-dune"></div>
+      <div class="cell cell-70 sand-dune"></div>
+      <div class="cell cell-80 sand-dune"></div>
+    </div>
+    
+    <div class="label">与障碍物/地面对比</div>
+    <div class="desert-bg">
+      <div class="cell cell-70 ground-normal"></div>
+      <div class="cell cell-70 obstacle-normal"></div>
+      <div class="cell cell-70 sand-dune"></div>
+    </div>
+    
+    <div class="label">残影效果</div>
+    <div class="desert-bg">
+      <div class="cell cell-70 sand-dune-ghost loop-ghost"></div>
+      <span style="color:#888;font-size:12px">→</span>
+      <div class="cell cell-70 sand-dune loop-appear"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 对比表格 -->
+<div class="comparison">
+  <h2>📊 方案对比</h2>
+  <table>
+    <tr>
+      <th>维度</th>
+      <th>当前实现</th>
+      <th>方案A 等轴测</th>
+      <th>方案B 波浪沙纹</th>
+      <th>方案C 简约图标</th>
+    </tr>
+    <tr>
+      <td>3D立体感</td>
+      <td><span class="tag-mid">★★☆</span> border-radius弧形不够明显</td>
+      <td><span class="tag-good">★★★</span> 三面明暗清晰</td>
+      <td><span class="tag-bad">★☆☆</span> 俯视角平面</td>
+      <td><span class="tag-mid">★★☆</span> 剪影有2色分层</td>
+    </tr>
+    <tr>
+      <td>辨识度</td>
+      <td><span class="tag-mid">★★☆</span> 容易和障碍物混淆</td>
+      <td><span class="tag-good">★★★</span> 形状独特</td>
+      <td><span class="tag-mid">★★☆</span> 需仔细看纹路</td>
+      <td><span class="tag-good">★★★</span> 半月形很明确</td>
+    </tr>
+    <tr>
+      <td>小尺寸适配</td>
+      <td><span class="tag-mid">★★☆</span> 细节模糊</td>
+      <td><span class="tag-good">★★★</span> 形状辨识不依赖细节</td>
+      <td><span class="tag-bad">★☆☆</span> 纹理细节丢失</td>
+      <td><span class="tag-good">★★★</span> 简约清晰</td>
+    </tr>
+    <tr>
+      <td>风沙动画</td>
+      <td><span class="tag-mid">★★☆</span> 渐变条飘动</td>
+      <td><span class="tag-good">★★★</span> 粒子+微光</td>
+      <td><span class="tag-mid">★★☆</span> 渐变条飘动</td>
+      <td><span class="tag-bad">★☆☆</span> 无（需额外元素）</td>
+    </tr>
+    <tr>
+      <td>实现复杂度</td>
+      <td>低</td>
+      <td><span class="tag-mid">中</span> clip-path + 额外wind-sand元素</td>
+      <td>低</td>
+      <td>低</td>
+    </tr>
+  </table>
+</div>
+
+<!-- 动画演示 -->
+<div class="demo-section">
+  <h2>🎬 沙丘移动动画演示（循环播放）</h2>
+  <div class="demo-grid">
+    
+    <div class="demo-col">
+      <div class="label">方案A：等轴测移动</div>
+      <div class="demo-cells desert-bg" style="padding: 16px;">
+        <div class="cell cell-70 sand-dune-ghost loop-ghost" style="background:transparent !important;border:none !important;position:relative;">
+          <div style="position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(145deg,rgba(236,212,142,0.25) 0%,rgba(219,184,104,0.15) 40%,rgba(109,79,26,0.1) 100%);clip-path:polygon(50% 5%,88% 35%,92% 70%,55% 92%,8% 75%,12% 40%);animation:ghost-fade 3s ease-in-out infinite;"></div>
+        </div>
+        <div class="demo-arrow">→</div>
+        <div class="cell cell-70 sand-dune loop-appear" style="position:relative;">
+          <div class="wind-sand"></div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="demo-col">
+      <div class="label">方案B：波浪移动</div>
+      <div class="demo-cells desert-bg" style="padding: 16px;">
+        <div class="cell cell-70 sand-dune-ghost loop-ghost"></div>
+        <div class="demo-arrow">→</div>
+        <div class="cell cell-70 scheme-b sand-dune loop-appear"></div>
+      </div>
+    </div>
+    
+    <div class="demo-col">
+      <div class="label">方案C：简约移动</div>
+      <div class="demo-cells desert-bg" style="padding: 16px;">
+        <div class="cell cell-70 sand-dune-ghost loop-ghost" style="background:transparent !important;border:none !important;position:relative;">
+          <div style="position:absolute;top:15%;left:10%;width:80%;height:72%;clip-path:polygon(0% 100%,0% 65%,5% 45%,15% 28%,30% 15%,50% 5%,70% 12%,82% 25%,90% 42%,95% 60%,100% 80%,100% 100%);background:linear-gradient(135deg,rgba(236,212,142,0.2) 0%,rgba(196,154,72,0.15) 50%,rgba(109,79,26,0.1) 100%);animation:ghost-fade 3s ease-in-out infinite;"></div>
+        </div>
+        <div class="demo-arrow">→</div>
+        <div class="cell cell-70 scheme-c sand-dune loop-appear"></div>
+      </div>
+    </div>
+    
+  </div>
+</div>
+
+</body>
+</html>

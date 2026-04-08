@@ -4,6 +4,12 @@
       <h2>选择匹配模式</h2>
       
       <div class="mode-options">
+        <div class="mode-option" @click="selectMode('solo')">
+          <div class="mode-icon">🤖</div>
+          <div class="mode-name">单人模式</div>
+          <div class="mode-desc">与AI对战，随时开始</div>
+        </div>
+        
         <div class="mode-option" @click="selectMode('room')">
           <div class="mode-icon">🏠</div>
           <div class="mode-name">房间模式</div>

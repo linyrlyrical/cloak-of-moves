@@ -107,6 +107,13 @@ export const MAP_THEMES = {
     playerColors: {
       player1: '#4ade80',
       player2: '#f87171'
+    },
+    // 森林特色：草丛配置
+    grassEnabled: true,
+    grassStyle: {
+      color: 'rgba(34, 139, 34, 0.6)',
+      borderColor: 'rgba(46, 125, 50, 0.8)',
+      icon: '🌿'
     }
   },
   desert: {
@@ -141,6 +148,13 @@ export const MAP_THEMES = {
     playerColors: {
       player1: '#fbbf24',
       player2: '#60a5fa'
+    },
+    // 沙漠特色：启用可移动沙丘生成
+    sandDuneEnabled: true,
+    sandDuneStyle: {
+      color: 'rgba(210, 180, 140, 0.6)',
+      borderColor: 'rgba(194, 149, 110, 0.7)',
+      icon: '🏜️'
     }
   },
   ice: {
