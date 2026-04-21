@@ -488,7 +488,7 @@ export class AIPlayer {
       case 'defense':
         return this.evaluateDefenseCard(myHp, isInDanger)
       case 'move':
-        return this.evaluateMoveCard(distance, tactic, isInDanger)
+        return this.evaluateMoveCard(card, distance, tactic, isInDanger)
       case 'scout':
         return this.evaluateScoutCard(distance)
       default:
@@ -540,7 +540,29 @@ export class AIPlayer {
     return value
   }
   
-  evaluateMoveCard(distance, tactic, isInDanger) {
+  // 检查移动牌的方向是否有效
+  isMoveCardDirectionValid(card) {
+    if (!card || card.type !== 'move') return false
+    const direction = card.direction
+    if (!direction) return false
+    return this.canMoveInDirection(direction)
+  }
+  
+  evaluateMoveCard(card, distance, tactic, isInDanger) {
+    const config = this.getDifficultyConfig()
+    
+    // 关键修复：检查移动牌的具体方向是否可行
+    const direction = card.direction
+    if (direction && !this.canMoveInDirection(direction)) {
+      // 这个方向不可行（被边界/障碍阻挡）
+      // 困难模式完全不选无效移动牌
+      if (config.predictionLevel >= 2) {
+        return 0
+      }
+      // 简单模式给予极低价值
+      return 0.5
+    }
+    
     let value = 3
     
     // 逃跑战术时移动价值高
@@ -554,6 +576,23 @@ export class AIPlayer {
     // 中立战术时
     else {
       value = distance > 2 ? 6 : 3
+    }
+    
+    // 检查移动方向是否是最佳方向
+    if (direction) {
+      const tactic = this.shouldChaseOrEscape()
+      let bestDir = tactic === 'escape' ? 
+        this.getDirectionAwayFromOpponent() : 
+        this.getDirectionToOpponent()
+      
+      if (direction === bestDir) {
+        value += 3 // 最佳方向额外加成
+      }
+      
+      // 检查是否是安全移动
+      if (this.isSafeMove(direction)) {
+        value += 1
+      }
     }
     
     // 检查是否有安全的移动方向
@@ -707,59 +746,180 @@ export class AIPlayer {
     })
   }
   
-  // 优化移动牌顺序，避免无效组合
+  // 优化移动牌顺序，避免无效组合（增强版）
   optimizeMoveOrder(handCards) {
     const config = this.getDifficultyConfig()
     
     // 简单模式不优化
     if (config.predictionLevel < 2) return handCards
     
-    // 提取移动牌
-    const moveCards = []
+    // 困难模式：完整模拟并优化
+    if (config.predictionLevel >= 3) {
+      // 1. 模拟当前位置
+      let simulatedPos = { ...this.getMyState().position }
+      const validCards = []
+      const invalidCards = []
+      
+      // 2. 按顺序模拟每张牌
+      for (let i = 0; i < handCards.length; i++) {
+        const card = handCards[i]
+        
+        if (card.isSkillCard) {
+          validCards.push(card)
+          continue
+        }
+        
+        if (card.type === 'move') {
+          const direction = card.direction
+          if (!direction) {
+            invalidCards.push(card)
+            continue
+          }
+          
+          // 检查从当前模拟位置能否执行此移动
+          const canMove = this.canMoveFromPosition(simulatedPos, direction)
+          
+          if (canMove) {
+            // 更新模拟位置
+            const offset = DIRECTION_OFFSET[direction]
+            simulatedPos.x += offset.x
+            simulatedPos.y += offset.y
+            validCards.push(card)
+          } else {
+            // 无效移动牌，放到最后
+            invalidCards.push(card)
+            console.log(`[AI优化] 移动牌 ${card.name} 方向 ${direction} 在位置 (${simulatedPos.x},${simulatedPos.y}) 无效`)
+          }
+        } else {
+          validCards.push(card)
+        }
+      }
+      
+      // 3. 检查是否有连续相反移动
+      const moveCardsInValid = validCards.filter(c => !c.isSkillCard && c.type === 'move')
+      if (moveCardsInValid.length >= 2) {
+        // 检测相邻的相反方向移动
+        for (let i = 0; i < moveCardsInValid.length - 1; i++) {
+          const dir1 = moveCardsInValid[i].direction
+          const dir2 = moveCardsInValid[i + 1].direction
+          
+          if (this.isOppositeMove(dir1, dir2)) {
+            // 发现相邻相反移动，尝试调整顺序
+            // 将相反方向的那张牌移到最后一张移动牌之后
+            console.log(`[AI优化] 发现相邻相反移动: ${dir1} -> ${dir2}, 调整顺序`)
+            
+            // 找到这对相反移动牌在validCards中的位置
+            const firstIndex = validCards.findIndex(c => c === moveCardsInValid[i])
+            const secondIndex = validCards.findIndex(c => c === moveCardsInValid[i + 1])
+            
+            if (firstIndex !== -1 && secondIndex !== -1) {
+              // 将第二张相反方向的牌移到所有移动牌之后
+              const secondCard = validCards[secondIndex]
+              validCards.splice(secondIndex, 1)
+              
+              // 找到最后一张移动牌的位置
+              let lastMoveIndex = -1
+              for (let j = validCards.length - 1; j >= 0; j--) {
+                if (!validCards[j].isSkillCard && validCards[j].type === 'move') {
+                  lastMoveIndex = j
+                  break
+                }
+              }
+              
+              // 插入到最后一张移动牌之后
+              if (lastMoveIndex !== -1) {
+                validCards.splice(lastMoveIndex + 1, 0, secondCard)
+              } else {
+                validCards.push(secondCard)
+              }
+            }
+            
+            // 重新模拟确认调整后的顺序有效
+            break // 只处理第一对相反移动
+          }
+        }
+      }
+      
+      // 4. 合并有效牌和无效牌
+      const optimizedCards = [...validCards, ...invalidCards]
+      
+      console.log(`[AI优化] 原顺序: ${handCards.map(c => c.name).join(' → ')}`)
+      console.log(`[AI优化] 新顺序: ${optimizedCards.map(c => c.name).join(' → ')}`)
+      
+      return optimizedCards
+    }
+    
+    // 普通模式：简单优化
+    // 提取移动牌并过滤无效方向
+    const validMoveCards = []
     const otherCards = []
     
-    handCards.forEach((card, index) => {
+    handCards.forEach((card) => {
       if (!card.isSkillCard && card.type === 'move') {
-        moveCards.push({ card, originalIndex: index })
+        const direction = card.direction
+        if (direction && this.canMoveInDirection(direction)) {
+          validMoveCards.push(card)
+        } else {
+          // 无效移动牌放到最后
+          otherCards.push(card)
+        }
       } else {
-        otherCards.push({ card, originalIndex: index })
+        otherCards.push(card)
       }
     })
     
-    // 如果有2张以上移动牌，检查是否有相反方向
-    if (moveCards.length >= 2 && config.predictionLevel >= 3) {
-      const tactic = this.shouldChaseOrEscape()
-      
-      // 获取首选移动方向
-      let primaryDir = tactic === 'escape' ? 
-        this.getDirectionAwayFromOpponent() : 
-        this.getDirectionToOpponent()
-      
-      // 检查是否有相反方向的移动牌
-      const oppositeDir = this.isOppositeMove(primaryDir, primaryDir) ? null : 
-        { up: 'down', down: 'up', left: 'right', right: 'left' }[primaryDir]
-      
-      if (oppositeDir) {
-        // 尝试避免连续相反移动
-        // 将相反方向的牌移到最后
-        moveCards.sort((a, b) => {
-          const aDir = a.card.direction
-          const bDir = b.card.direction
-          
-          // 首选方向优先
-          if (aDir === primaryDir && bDir !== primaryDir) return -1
-          if (bDir === primaryDir && aDir !== primaryDir) return 1
-          
-          // 相反方向放最后
-          if (aDir === oppositeDir && bDir !== oppositeDir) return 1
-          if (bDir === oppositeDir && aDir !== oppositeDir) return -1
-          
-          return 0
-        })
+    // 将有效移动牌按战术方向排序
+    const tactic = this.shouldChaseOrEscape()
+    const primaryDir = tactic === 'escape' ? 
+      this.getDirectionAwayFromOpponent() : 
+      this.getDirectionToOpponent()
+    
+    validMoveCards.sort((a, b) => {
+      if (a.direction === primaryDir && b.direction !== primaryDir) return -1
+      if (b.direction === primaryDir && a.direction !== primaryDir) return 1
+      return 0
+    })
+    
+    return [...validMoveCards, ...otherCards]
+  }
+  
+  // 从指定位置检查能否移动
+  canMoveFromPosition(pos, direction) {
+    const offset = DIRECTION_OFFSET[direction]
+    if (!offset) return false
+    
+    const newX = pos.x + offset.x
+    const newY = pos.y + offset.y
+    
+    // 检查边界
+    if (newX < 0 || newX >= this.match.map.width || newY < 0 || newY >= this.match.map.height) {
+      return false
+    }
+    
+    // 检查形状地图
+    if (this.match.map.isShapeMap && this.match.map.shapeLayout) {
+      if (!this.match.map.shapeLayout[newY] || this.match.map.shapeLayout[newY][newX] !== 1) {
+        return false
       }
     }
     
-    return handCards // 返回优化后的顺序
+    // 检查障碍物
+    if (this.match.map.obstacles.some(o => o.x === newX && o.y === newY && !o.isBoundary)) {
+      return false
+    }
+    
+    // 检查沙丘
+    if (this.match.map.sandDunes?.some(d => d.x === newX && d.y === newY)) {
+      return false
+    }
+    
+    // 检查对手位置（使用当前对手位置）
+    const oppPos = this.getOpponentState().position
+    if (oppPos.x === newX && oppPos.y === newY) {
+      return false
+    }
+    
+    return true
   }
   
   orderCards(handCards) {
