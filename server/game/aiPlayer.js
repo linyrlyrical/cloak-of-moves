@@ -18,10 +18,14 @@ export class AIPlayer {
     console.log(`[AI] AI玩家初始化, 索引: ${playerIndex}, 难度: ${difficulty}, 角色: ${this.avatarId}`)
   }
   
-  // 随机选择角色
+  // 随机选择角色（排除男盗贼，因为AI无法有效使用盗为己用技能）
   selectRandomAvatar() {
-    const avatarIds = Object.values(CHARACTER_SKILLS).map(s => s.id)
-    this.avatarId = avatarIds[Math.floor(Math.random() * avatarIds.length)]
+    const allAvatarIds = Object.values(CHARACTER_SKILLS).map(s => s.id)
+    // 排除男盗贼（thief_male），AI无法理解偷牌后如何正确执行偷来的牌
+    const excludedIds = ['thief_male']
+    const availableAvatarIds = allAvatarIds.filter(id => !excludedIds.includes(id))
+    this.avatarId = availableAvatarIds[Math.floor(Math.random() * availableAvatarIds.length)]
+    console.log(`[AI] 可选角色: ${availableAvatarIds.join(', ')}, 选中: ${this.avatarId}`)
   }
   
   // 获取AI的socketId
