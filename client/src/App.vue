@@ -251,8 +251,47 @@
         </div>
       </div>
       
-      <!-- 单人模式已移除AI选择，直接进入地图配置 -->
-      
+      <!-- 单人模式难度选择界面 -->
+      <div v-else-if="selectedMatchMode === 'solo'" class="solo-difficulty-form">
+        <h3>选择AI难度</h3>
+        <div class="difficulty-options">
+          <div 
+            class="difficulty-option easy"
+            :class="{ 'selected': selectedDifficulty === 'easy' }"
+            @click="selectedDifficulty = 'easy'"
+          >
+            <div class="difficulty-icon">🌱</div>
+            <div class="difficulty-name">简单</div>
+            <div class="difficulty-desc">AI反应慢，策略简单</div>
+          </div>
+          <div 
+            class="difficulty-option normal"
+            :class="{ 'selected': selectedDifficulty === 'normal' }"
+            @click="selectedDifficulty = 'normal'"
+          >
+            <div class="difficulty-icon">⚔️</div>
+            <div class="difficulty-name">普通</div>
+            <div class="difficulty-desc">AI策略平衡，适度挑战</div>
+          </div>
+          <div 
+            class="difficulty-option hard"
+            :class="{ 'selected': selectedDifficulty === 'hard' }"
+            @click="selectedDifficulty = 'hard'"
+          >
+            <div class="difficulty-icon">🔥</div>
+            <div class="difficulty-name">困难</div>
+            <div class="difficulty-desc">AI最优策略，高手挑战</div>
+          </div>
+        </div>
+        <button 
+          class="btn btn-primary start-solo-btn" 
+          :disabled="!selectedDifficulty"
+          @click="startSoloGame"
+        >
+          开始游戏
+        </button>
+        <button class="btn back-btn" @click="selectedMatchMode = ''">← 返回</button>
+      </div>
       <!-- 房间号匹配界面 -->
       <div v-else-if="selectedMatchMode === 'room'" class="room-match-form">
         <div class="connect-form">
@@ -1207,30 +1246,26 @@ export default {
     // 是否为单人模式
     const isSoloMode = ref(false)
     
+    // 单人模式难度选择
+    const selectedDifficulty = ref('')
+    
     // 选择匹配模式
     const selectMatchMode = (mode) => {
-      if (mode === 'solo') {
-        // 单人模式：直接开始，不再选择AI类型
-        isSoloMode.value = true
-        socket.value.emit('start_solo_game', { 
-          avatarId: myAvatarId.value,
-          difficulty: 'normal'
-        })
-        return
-      }
       selectedMatchMode.value = mode
       if (mode === 'id') {
         showIdMatchLobby.value = true
       }
+      // 单人模式：不再直接启动，而是显示难度选择界面
     }
     
-    // 开始单人游戏（选择AI类型后）
-    const startSoloGame = (aiType) => {
+    // 开始单人游戏（选择难度后）
+    const startSoloGame = () => {
+      if (!selectedDifficulty.value) return
+      console.log('[客户端] 开始单人游戏，难度:', selectedDifficulty.value)
       isSoloMode.value = true
       socket.value.emit('start_solo_game', { 
         avatarId: myAvatarId.value,
-        difficulty: 'normal',
-        aiType: aiType  // 'rule' 或 'neural'
+        difficulty: selectedDifficulty.value
       })
     }
     
@@ -3191,6 +3226,7 @@ const currentTurn = computed(() => {
     return {
       socket,
       socketId,
+      selectedDifficulty,
       connectionStatus,
       roomCode,
       currentRoom,
@@ -3575,31 +3611,31 @@ html, body {
   color: #888;
 }
 
-/* 单人模式AI选择 */
-.solo-ai-select {
+/* 单人模式难度选择 */
+.solo-difficulty-form {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
 }
 
-.solo-ai-select h3 {
+.solo-difficulty-form h3 {
   font-size: 1.5rem;
   color: white;
   margin-bottom: 0.5rem;
 }
 
-.ai-type-options {
+.difficulty-options {
   display: flex;
-  gap: 2rem;
+  gap: 1.5rem;
   justify-content: center;
 }
 
-.ai-type-btn {
-  width: 180px;
-  height: 200px;
+.difficulty-option {
+  width: 150px;
+  height: 180px;
   background: rgba(255, 255, 255, 0.95);
-  border-radius: 20px;
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3610,44 +3646,97 @@ html, body {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
 }
 
-.ai-type-btn:hover {
+.difficulty-option:hover {
   transform: translateY(-8px);
   box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
 }
 
-.rule-ai-btn {
-  border-color: #ed8936;
+.difficulty-option.easy {
+  border-color: #48bb78;
 }
 
-.rule-ai-btn:hover {
-  background: linear-gradient(145deg, rgba(237, 137, 54, 0.1), #fff);
-  border-color: #dd6b20;
+.difficulty-option.easy:hover {
+  background: linear-gradient(145deg, rgba(72, 187, 120, 0.1), #fff);
+  border-color: #38a169;
 }
 
-.neural-ai-btn {
-  border-color: #6c5ce7;
+.difficulty-option.easy.selected {
+  background: linear-gradient(145deg, #48bb78, #38a169);
+  border-color: #2f855a;
 }
 
-.neural-ai-btn:hover {
-  background: linear-gradient(145deg, rgba(108, 92, 231, 0.1), #fff);
-  border-color: #5b4cdb;
+.difficulty-option.easy.selected .difficulty-name,
+.difficulty-option.easy.selected .difficulty-desc {
+  color: white;
 }
 
-.ai-type-icon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
+.difficulty-option.normal {
+  border-color: #667eea;
 }
 
-.ai-type-name {
-  font-size: 1.3rem;
+.difficulty-option.normal:hover {
+  background: linear-gradient(145deg, rgba(102, 126, 234, 0.1), #fff);
+  border-color: #5a67d8;
+}
+
+.difficulty-option.normal.selected {
+  background: linear-gradient(145deg, #667eea, #5a67d8);
+  border-color: #4c51bf;
+}
+
+.difficulty-option.normal.selected .difficulty-name,
+.difficulty-option.normal.selected .difficulty-desc {
+  color: white;
+}
+
+.difficulty-option.hard {
+  border-color: #e53e3e;
+}
+
+.difficulty-option.hard:hover {
+  background: linear-gradient(145deg, rgba(229, 62, 62, 0.1), #fff);
+  border-color: #c53030;
+}
+
+.difficulty-option.hard.selected {
+  background: linear-gradient(145deg, #e53e3e, #c53030);
+  border-color: #9b2c2c;
+}
+
+.difficulty-option.hard.selected .difficulty-name,
+.difficulty-option.hard.selected .difficulty-desc {
+  color: white;
+}
+
+.difficulty-icon {
+  font-size: 3rem;
+  margin-bottom: 0.8rem;
+}
+
+.difficulty-name {
+  font-size: 1.2rem;
   font-weight: bold;
   color: #333;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.3rem;
 }
 
-.ai-type-desc {
-  font-size: 0.9rem;
-  color: #888;
+.difficulty-desc {
+  font-size: 0.8rem;
+  color: #666;
+  text-align: center;
+  padding: 0 0.5rem;
+}
+
+.start-solo-btn {
+  margin-top: 1rem;
+  padding: 0.8rem 2.5rem;
+  font-size: 1.1rem;
+}
+
+.start-solo-btn:disabled {
+  background: #a0a0a0;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* 房间匹配表单 */

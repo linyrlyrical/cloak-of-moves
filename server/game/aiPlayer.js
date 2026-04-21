@@ -17,11 +17,11 @@ export class AIPlayer {
     this.aiSocketId = `AI_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
     this.avatarId = null
     
-    // 难度相关参数配置
+    // 难度相关参数配置（增强版）
     this.difficultyConfig = {
-      easy: { randomness: 6, thinkDelay: 1500, predictionLevel: 0 },
-      normal: { randomness: 3, thinkDelay: 1000, predictionLevel: 1 },
-      hard: { randomness: 1, thinkDelay: 500, predictionLevel: 2 }
+      easy: { randomness: 3, thinkDelay: 1200, predictionLevel: 1 },
+      normal: { randomness: 1.5, thinkDelay: 800, predictionLevel: 2 },
+      hard: { randomness: 0.3, thinkDelay: 300, predictionLevel: 3 }
     }
     
     this.selectRandomAvatar()
@@ -93,6 +93,218 @@ export class AIPlayer {
   
   getMovableDirections() {
     return ['up', 'down', 'left', 'right'].filter(d => this.canMoveInDirection(d))
+  }
+  
+  // ========== 传送阵相关 ==========
+  
+  // 获取所有传送门
+  getPortals() {
+    return this.match.map.portals || []
+  }
+  
+  // 获取指定位置传送门的出口
+  getPortalExit(x, y) {
+    const portals = this.getPortals()
+    const portal = portals.find(p => p.x === x && p.y === y)
+    if (!portal) return null
+    
+    // 找到配对的传送门
+    const pairedPortal = portals.find(p => 
+      p.color === portal.color && (p.x !== x || p.y !== y)
+    )
+    return pairedPortal || null
+  }
+  
+  // 检查位置是否有传送门
+  hasPortalAt(x, y) {
+    return this.getPortals().some(p => p.x === x && p.y === y)
+  }
+  
+  // 计算通过传送门到达目标的最短路径（考虑传送效果）
+  findPathWithPortals(targetPos) {
+    const myPos = this.getMyState().position
+    
+    // 1. 直接路径（不使用传送门）
+    const directPath = this.findPathToPosition(targetPos)
+    
+    // 2. 通过传送门的路径
+    const portals = this.getPortals()
+    let bestPortalPath = null
+    let bestPortalLength = Infinity
+    
+    for (const portal of portals) {
+      // 到传送门入口的路径
+      const pathToPortal = this.findPathToPosition({ x: portal.x, y: portal.y })
+      if (pathToPortal.length === 0) continue
+      
+      // 获取出口
+      const exit = this.getPortalExit(portal.x, portal.y)
+      if (!exit) continue
+      
+      // 从出口到目标的路径
+      const pathFromExit = this.findPathToPositionFrom(exit, targetPos)
+      if (pathFromExit.length === 0) continue
+      
+      const totalLength = pathToPortal.length + pathFromExit.length
+      if (totalLength < bestPortalLength) {
+        bestPortalLength = totalLength
+        bestPortalPath = { pathToPortal, exit, pathFromExit }
+      }
+    }
+    
+    // 比较直接路径和传送门路径
+    if (bestPortalPath && bestPortalLength < directPath.length) {
+      return { usePortal: true, path: bestPortalPath }
+    }
+    
+    return { usePortal: false, path: directPath }
+  }
+  
+  // 从指定位置到目标的路径
+  findPathToPositionFrom(fromPos, targetPos) {
+    const queue = [{ x: fromPos.x, y: fromPos.y, path: [] }]
+    const visited = new Set([`${fromPos.x},${fromPos.y}`])
+    const directions = ['up', 'down', 'left', 'right']
+    
+    while (queue.length > 0) {
+      const current = queue.shift()
+      if (current.x === targetPos.x && current.y === targetPos.y) return current.path
+      
+      for (const dir of directions) {
+        const offset = DIRECTION_OFFSET[dir]
+        const newX = current.x + offset.x
+        const newY = current.y + offset.y
+        const key = `${newX},${newY}`
+        
+        if (visited.has(key)) continue
+        if (newX < 0 || newX >= this.match.map.width || newY < 0 || newY >= this.match.map.height) continue
+        if (this.match.map.isShapeMap && this.match.map.shapeLayout) {
+          if (!this.match.map.shapeLayout[newY] || this.match.map.shapeLayout[newY][newX] !== 1) continue
+        }
+        if (this.match.map.obstacles.some(o => o.x === newX && o.y === newY && !o.isBoundary)) continue
+        if (this.match.map.sandDunes?.some(d => d.x === newX && d.y === newY)) continue
+        
+        visited.add(key)
+        queue.push({ x: newX, y: newY, path: [...current.path, dir] })
+      }
+    }
+    return []
+  }
+  
+  // 判断是否应该利用传送门
+  shouldUsePortal() {
+    const distance = this.getDistanceToOpponent()
+    const tactic = this.shouldChaseOrEscape()
+    const config = this.getDifficultyConfig()
+    
+    // 困难模式才考虑传送门
+    if (config.predictionLevel < 3) return false
+    
+    const portals = this.getPortals()
+    if (portals.length < 2) return false
+    
+    const oppPos = this.getOpponentState().position
+    const portalPath = this.findPathWithPortals(oppPos)
+    
+    // 如果传送门路径更短，考虑使用
+    if (portalPath.usePortal && tactic === 'chase') {
+      return true
+    }
+    
+    // 逃跑时检查传送门是否能帮助逃脱
+    if (tactic === 'escape') {
+      for (const portal of portals) {
+        const exit = this.getPortalExit(portal.x, portal.y)
+        if (exit) {
+          const exitDistance = Math.abs(exit.x - oppPos.x) + Math.abs(exit.y - oppPos.y)
+          if (exitDistance > distance) return true
+        }
+      }
+    }
+    
+    return false
+  }
+  
+  // ========== 玩家技能分析 ==========
+  
+  // 获取对手技能威胁
+  getOpponentSkillThreat() {
+    const oppState = this.getOpponentState()
+    const oppSkill = oppState.skill
+    const isSealed = this.match.skillSealed
+    
+    if (!oppSkill || isSealed) return { threat: 0, type: null }
+    
+    const distance = this.getDistanceToOpponent()
+    let threat = 0
+    let type = null
+    
+    // 分析不同技能的威胁
+    switch (oppSkill.id) {
+      case 'mage_male': // 天降陨石 - 全图AOE威胁
+        threat = 8
+        type = 'aoe'
+        break
+      case 'knight_male': // 旋风斩 - 近距离威胁
+        threat = distance <= 1 ? 10 : 2
+        type = 'close_range'
+        break
+      case 'knight_female': // 坚韧突刺 - 攻击范围+1
+        threat = distance <= 3 ? 7 : 3
+        type = 'extended_range'
+        break
+      case 'archer_male': // 百步穿杨 - 远程穿透
+        threat = 9
+        type = 'piercing'
+        break
+      case 'archer_female': // 天降箭雨 - 随机AOE
+        threat = 6
+        type = 'random_aoe'
+        break
+      case 'mage_female': // 爆裂攻击 - 可摧毁障碍
+        threat = 7
+        type = 'destructive'
+        break
+    }
+    
+    return { threat, type }
+  }
+  
+  // 获取己方技能优势
+  getMySkillAdvantage() {
+    const myState = this.getMyState()
+    const mySkill = myState.skill
+    const isSealed = this.match.skillSealed
+    
+    if (!mySkill || isSealed) return { advantage: 0, canUse: false }
+    
+    const distance = this.getDistanceToOpponent()
+    const oppHp = this.getOpponentState().hp
+    let advantage = 0
+    let canUse = myState.skillCooldown === 0
+    
+    switch (mySkill.id) {
+      case 'mage_male': // 天降陨石
+        advantage = canUse ? 10 : 0
+        break
+      case 'knight_male': // 旋风斩
+        advantage = canUse && distance <= 1 ? 12 : 0
+        break
+      case 'knight_female': // 坚韧突刺 - 被动，攻击范围+1
+        advantage = distance <= 3 ? 5 : 2
+        break
+      case 'archer_male': // 百步穿杨
+        advantage = canUse ? 9 : 0
+        break
+      case 'archer_female': // 天降箭雨 - 被动
+        advantage = 4
+        break
+      case 'reader_female': // 深度求索 - 探查范围+1
+        advantage = this.match.fogEnabled ? 5 : 1
+        break
+    }
+    
+    return { advantage, canUse }
   }
   
   // ========== 高级位置分析 ==========
@@ -207,20 +419,33 @@ export class AIPlayer {
   
   // ========== 战术决策 ==========
   
-  // 判断应该追击还是逃跑
+  // 判断应该追击还是逃跑（增强版 - 更激进）
   shouldChaseOrEscape() {
     const myHp = this.getMyState().hp
     const oppHp = this.getOpponentState().hp
     const distance = this.getDistanceToOpponent()
+    const config = this.getDifficultyConfig()
+    
+    // 困难模式更激进追击
+    if (config.predictionLevel >= 3) {
+      // 血量相等或优势时主动追击
+      if (myHp >= oppHp) return 'chase'
+      // 对手血量低时果断追击终结
+      if (oppHp <= 1) return 'chase'
+    }
     
     // 血量优势时追击
-    if (myHp > oppHp + 1) return 'chase'
+    if (myHp > oppHp) return 'chase'
+    // 对手血量低时追击（尝试终结）
+    if (oppHp <= 1 && myHp >= 2) return 'chase'
     // 血量劣势且近距离时逃跑
     if (myHp < oppHp && distance <= 2) return 'escape'
     // 在对手攻击范围内且血量低时逃跑
-    if (this.isInOpponentAttackRange() && myHp <= 2) return 'escape'
-    // 默认保持距离
-    return 'neutral'
+    if (this.isInOpponentAttackRange() && myHp <= 1) return 'escape'
+    // 中等距离主动进攻
+    if (distance <= 3 && myHp >= oppHp) return 'chase'
+    // 默认进攻（不再被动中立）
+    return 'chase'
   }
   
   // ========== 智能选牌策略 ==========
@@ -274,24 +499,30 @@ export class AIPlayer {
   evaluateAttackCard(card, distance, oppHp, tactic) {
     const range = card.range || 1
     const canHit = this.getBestAttackDirection(range) !== null
+    const config = this.getDifficultyConfig()
     
     if (!canHit) {
-      // 无法命中时价值低
+      // 无法命中时，困难模式仍保留攻击牌期望接近后使用
+      if (config.predictionLevel >= 3 && distance <= 3) return 5
       return distance <= 3 ? 2 : 1
     }
     
     let value = 0
-    // 基础价值：能命中的攻击
-    value = distance <= range ? 10 : 6
+    // 基础价值：能命中的攻击（增强基础价值）
+    value = distance <= range ? 12 : 8
     
-    // 2格攻击范围更灵活
-    if (range === 2) value += 2
+    // 2格攻击范围更灵活，价值更高
+    if (range === 2) value += 3
     
     // 追击战术时攻击价值更高
-    if (tactic === 'chase') value += 3
+    if (tactic === 'chase') value += 4
     
     // 对手血量低时攻击价值更高（可以终结）
-    if (oppHp <= 1) value += 5
+    if (oppHp <= 1) value += 8
+    else if (oppHp <= 2) value += 4
+    
+    // 困难模式额外加成
+    if (config.predictionLevel >= 3) value += 2
     
     return value
   }
@@ -373,6 +604,164 @@ export class AIPlayer {
   
   // ========== 智能排序策略 ==========
   
+  // 检查两个移动方向是否相反
+  isOppositeMove(dir1, dir2) {
+    const opposites = { up: 'down', down: 'up', left: 'right', right: 'left' }
+    return opposites[dir1] === dir2
+  }
+  
+  // 模拟出牌顺序，检测最终位置和有效性
+  simulateCardOrder(handCards) {
+    const myPos = { ...this.getMyState().position }
+    const oppPos = this.getOpponentState().position
+    const moveSequence = []
+    let attackCount = 0
+    let defenseCount = 0
+    
+    for (const card of handCards) {
+      if (card.isSkillCard) continue
+      
+      if (card.type === 'move') {
+        // 模拟移动
+        const tactic = this.shouldChaseOrEscape()
+        let bestDir = null
+        
+        if (tactic === 'chase') {
+          bestDir = this.getDirectionToOpponent()
+        } else if (tactic === 'escape') {
+          bestDir = this.getDirectionAwayFromOpponent()
+        }
+        
+        // 检查这个方向是否可行
+        const movableDirs = this.getMovableDirectionsFrom(myPos)
+        if (movableDirs.includes(bestDir)) {
+          const offset = DIRECTION_OFFSET[bestDir]
+          myPos.x += offset.x
+          myPos.y += offset.y
+          moveSequence.push(bestDir)
+        } else if (movableDirs.length > 0) {
+          // 选择任意可行方向
+          const dir = movableDirs[0]
+          const offset = DIRECTION_OFFSET[dir]
+          myPos.x += offset.x
+          myPos.y += offset.y
+          moveSequence.push(dir)
+        }
+      } else if (card.type === 'attack') {
+        // 检查当前位置能否攻击到对手
+        const range = card.range || 1
+        const canHit = this.canAttackHitOpponentFromPos(myPos, oppPos, range)
+        if (canHit) attackCount++
+      } else if (card.type === 'defense') {
+        defenseCount++
+      }
+    }
+    
+    return {
+      finalPos: myPos,
+      moveSequence,
+      attackCount,
+      defenseCount,
+      netDistance: Math.abs(myPos.x - this.getOpponentState().position.x) + 
+                   Math.abs(myPos.y - this.getOpponentState().position.y)
+    }
+  }
+  
+  // 从指定位置检查能否攻击到对手
+  canAttackHitOpponentFromPos(fromPos, oppPos, range) {
+    const directions = ['up', 'down', 'left', 'right']
+    
+    for (const dir of directions) {
+      const offset = DIRECTION_OFFSET[dir]
+      for (let i = 1; i <= range; i++) {
+        const checkX = fromPos.x + offset.x * i
+        const checkY = fromPos.y + offset.y * i
+        
+        if (checkX < 0 || checkX >= this.match.map.width || checkY < 0 || checkY >= this.match.map.height) break
+        if (this.match.map.obstacles.some(o => o.x === checkX && o.y === checkY && !o.isBoundary)) break
+        if (checkX === oppPos.x && checkY === oppPos.y) return true
+      }
+    }
+    return false
+  }
+  
+  // 从指定位置获取可移动方向
+  getMovableDirectionsFrom(fromPos) {
+    const directions = ['up', 'down', 'left', 'right']
+    return directions.filter(dir => {
+      const offset = DIRECTION_OFFSET[dir]
+      const newX = fromPos.x + offset.x
+      const newY = fromPos.y + offset.y
+      
+      if (newX < 0 || newX >= this.match.map.width || newY < 0 || newY >= this.match.map.height) return false
+      if (this.match.map.isShapeMap && this.match.map.shapeLayout) {
+        if (!this.match.map.shapeLayout[newY] || this.match.map.shapeLayout[newY][newX] !== 1) return false
+      }
+      if (this.match.map.obstacles.some(o => o.x === newX && o.y === newY && !o.isBoundary)) return false
+      if (this.match.map.sandDunes?.some(d => d.x === newX && d.y === newY)) return false
+      
+      const oppPos = this.getOpponentState().position
+      if (oppPos.x === newX && oppPos.y === newY) return false
+      
+      return true
+    })
+  }
+  
+  // 优化移动牌顺序，避免无效组合
+  optimizeMoveOrder(handCards) {
+    const config = this.getDifficultyConfig()
+    
+    // 简单模式不优化
+    if (config.predictionLevel < 2) return handCards
+    
+    // 提取移动牌
+    const moveCards = []
+    const otherCards = []
+    
+    handCards.forEach((card, index) => {
+      if (!card.isSkillCard && card.type === 'move') {
+        moveCards.push({ card, originalIndex: index })
+      } else {
+        otherCards.push({ card, originalIndex: index })
+      }
+    })
+    
+    // 如果有2张以上移动牌，检查是否有相反方向
+    if (moveCards.length >= 2 && config.predictionLevel >= 3) {
+      const tactic = this.shouldChaseOrEscape()
+      
+      // 获取首选移动方向
+      let primaryDir = tactic === 'escape' ? 
+        this.getDirectionAwayFromOpponent() : 
+        this.getDirectionToOpponent()
+      
+      // 检查是否有相反方向的移动牌
+      const oppositeDir = this.isOppositeMove(primaryDir, primaryDir) ? null : 
+        { up: 'down', down: 'up', left: 'right', right: 'left' }[primaryDir]
+      
+      if (oppositeDir) {
+        // 尝试避免连续相反移动
+        // 将相反方向的牌移到最后
+        moveCards.sort((a, b) => {
+          const aDir = a.card.direction
+          const bDir = b.card.direction
+          
+          // 首选方向优先
+          if (aDir === primaryDir && bDir !== primaryDir) return -1
+          if (bDir === primaryDir && aDir !== primaryDir) return 1
+          
+          // 相反方向放最后
+          if (aDir === oppositeDir && bDir !== oppositeDir) return 1
+          if (bDir === oppositeDir && aDir !== oppositeDir) return -1
+          
+          return 0
+        })
+      }
+    }
+    
+    return handCards // 返回优化后的顺序
+  }
+  
   orderCards(handCards) {
     const config = this.getDifficultyConfig()
     const distance = this.getDistanceToOpponent()
@@ -382,16 +771,40 @@ export class AIPlayer {
     const tactic = this.shouldChaseOrEscape()
     const isPriority = this.match.isPlayer1Priority ? (this.playerIndex === 0) : (this.playerIndex === 1)
     
+    // 考虑对手技能威胁
+    const skillThreat = this.getOpponentSkillThreat()
+    
+    // 考虑传送门
+    const usePortal = this.shouldUsePortal()
+    
     const cardPriorities = handCards.map((card, index) => {
       let priority = this.calculateCardPriority(card, distance, myHp, oppHp, isInDanger, tactic, isPriority)
+      
+      // 根据对手技能威胁调整优先级
+      if (skillThreat.threat >= 7) {
+        // 高威胁时，防御和移动优先
+        if (card.type === 'defense') priority += 3
+        if (card.type === 'move' && tactic === 'escape') priority += 2
+      }
+      
+      // 传送门策略
+      if (usePortal && card.type === 'move') {
+        priority += 2
+      }
+      
       priority += Math.random() * config.randomness * 0.5
       return { index, priority, card }
     })
     
     cardPriorities.sort((a, b) => b.priority - a.priority)
-    const orderedCards = cardPriorities.map(cp => cp.card)
+    let orderedCards = cardPriorities.map(cp => cp.card)
     
-    console.log(`[AI] 排序: ${orderedCards.map(c => c.name).join(' → ')}`)
+    // 优化移动牌顺序（困难模式）
+    if (config.predictionLevel >= 3) {
+      orderedCards = this.optimizeMoveOrder(orderedCards)
+    }
+    
+    console.log(`[AI] 排序: ${orderedCards.map(c => c.name).join(' → ')}, 战术: ${tactic}, 技能威胁: ${skillThreat.threat}`)
     return orderedCards
   }
   

@@ -8,12 +8,18 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",
     "client": "cd client && npm run dev",
-    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install",
+    "train:ai": "node train/self_play.js --episodes 1000 && cd train && C:\\Users\\13262\\Miniconda3\\envs\\cloak-ai\\python.exe -X utf8 train_ppo.py --bc_episodes 1000 --ppo_iterations 200",
+    "train:collect": "node train/self_play.js --episodes 1000",
+    "train:ppo": "cd train && C:\\Users\\13262\\Miniconda3\\envs\\cloak-ai\\python.exe -X utf8 train_ppo.py",
+    "train:export": "cd train && C:\\Users\\13262\\Miniconda3\\envs\\cloak-ai\\python.exe -X utf8 export_onnx.py",
+    "train:test": "cd train && C:\\Users\\13262\\Miniconda3\\envs\\cloak-ai\\python.exe -X utf8 model.py && C:\\Users\\13262\\Miniconda3\\envs\\cloak-ai\\python.exe -X utf8 game_env.py"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.18.0",
-    "socket.io": "^4.7.0",
-    "cors": "^2.8.5"
+    "onnxruntime-node": "^1.24.3",
+    "socket.io": "^4.7.0"
   },
   "devDependencies": {
     "concurrently": "^8.2.0"
