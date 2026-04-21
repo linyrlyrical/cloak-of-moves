@@ -1,5 +1,6 @@
 import { GAME_CONFIG, CARD_TYPES, ALL_CARD_TYPES, DIRECTION_OFFSET, GAME_PHASES, MAP_THEMES, THEME_LIST, PORTAL_COLORS, PORTAL_COLOR_LIST, THEME_SHAPE_LAYOUTS, CHARACTER_SKILLS, getCharacterSkillById } from '../shared/constants.js'
 import { AIPlayer } from './aiPlayer.js'
+import { NeuralAIPlayer } from './neural_ai_player.js'
 
 export class MatchManager {
   constructor() {
@@ -700,6 +701,20 @@ class Match {
     }
     
     console.log(`[玩家] 玩家${index + 1}设置为: ${socketId}, 形象: ${avatarId || '默认'}`)
+  }
+
+  // 更新玩家角色形象（配置阶段实时更新）
+  updatePlayerAvatar(socketId, avatarId) {
+    // 找到对应的玩家索引
+    const playerIndex = this.playerStates.findIndex(p => p.id === socketId)
+    if (playerIndex === -1) {
+      console.log(`[警告] 未找到玩家 ${socketId}`)
+      return
+    }
+
+    // 更新角色形象
+    this.playerStates[playerIndex].avatarId = avatarId
+    console.log(`[角色] 玩家${playerIndex + 1} (${socketId}) 更换角色为: ${avatarId}`)
     
     // 检查两个玩家是否都已加入
     if (this.playerStates[0].id && this.playerStates[1].id) {
@@ -1629,6 +1644,27 @@ class Match {
         }, delayTime)
       })
     }
+  }
+  
+  // ========== 寒流回合快速跳过处理 ==========
+  handleFrozenRound() {
+    console.log(`[寒流] 处理寒流回合，展示双方冻结的手牌`)
+    
+    // 发送寒流回合事件，通知客户端直接展示双方手牌（跳过逐张出牌）
+    const state = this.getState()
+    state.player1Hand = this.playerStates[0].handCards
+    state.player2Hand = this.playerStates[1].handCards
+    
+    this.io?.to(this.roomCode).emit('frozen_round_cards', {
+      state: state,
+      message: '❄️ 寒流来袭！本回合所有卡牌效果被冻结！'
+    })
+    
+    // 2秒后自动结束回合
+    setTimeout(() => {
+      console.log(`[寒流] 寒流回合结束，进入下一回合`)
+      this.endRound()
+    }, 2000)
   }
   
   // 后手玩家选择查看先手的手牌
@@ -2595,8 +2631,8 @@ class Match {
       return
     }
     
-    // 15%概率触发寒流
-    const chance = 1
+    // 20%概率
+    const chance = 0.20
     const triggered = Math.random() < chance
     
     if (triggered) {
@@ -3090,26 +3126,41 @@ class Match {
   requestRematch(socketId) {
     const index = this.getPlayerIndex(socketId)
     if (index === -1) return
-    
+
     // 只有在游戏结束时才能请求再来一局
     if (this.phase !== GAME_PHASES.GAME_END) {
       console.log(`[再来一局] 当前阶段不允许请求再来一局: ${this.phase}`)
       return
     }
-    
+
     const opponentIndex = 1 - index
-    
+
+    // ========== AI模式：自动同意再来一局 ==========
+    if (this.isAIMatch) {
+      console.log(`[再来一局] AI模式，自动同意再来一局`)
+
+      // 清除请求记录
+      this.rematchRequests = {}
+
+      // 通知人类玩家再来一局已接受
+      this.io?.to(this.roomCode).emit('rematch_accepted')
+
+      // 重置游戏
+      this.reset()
+      return
+    }
+
     // 记录请求
     this.rematchRequests = this.rematchRequests || {}
     this.rematchRequests[socketId] = true
-    
+
     console.log(`[再来一局] 玩家${index + 1}请求再来一局`)
-    
+
     // 通知对手有人请求再来一局
     this.io?.to(this.playerStates[opponentIndex].id).emit('rematch_requested', {
       from: socketId
     })
-    
+
     // 通知请求者已发送请求
     this.io?.to(socketId).emit('rematch_request_sent')
   }
@@ -3247,9 +3298,15 @@ class Match {
   }
   
   // 初始化AI单人模式
+  // difficulty: 'easy', 'normal', 'hard'
+  // 注意：已移除神经网络AI选项，统一使用规则AI
   initAI(difficulty = 'normal') {
     this.isAIMatch = true
-    this.aiPlayer = new AIPlayer(1, this, difficulty)  // AI始终是玩家2
+    
+    // 使用规则AI
+    this.aiPlayer = new AIPlayer(1, this, difficulty)
+    console.log(`[AI] 使用规则AI (难度: ${difficulty})`)
+    
     const aiSocketId = this.aiPlayer.getSocketId()
     
     // 设置AI的socketId和角色

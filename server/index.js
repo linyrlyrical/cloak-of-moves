@@ -76,17 +76,8 @@ io.on('connection', (socket) => {
       })
       console.log(`[发送] room_joined 事件到 ${socket.id}`)
       
-      // 同时获取match并发送game_start
-      const match = matchManager.getMatch(roomCode)
-      if (match) {
-        socket.emit('game_start', {
-          ...match.getState(),
-          isPlayer1Priority: match.isPlayer1Priority
-        })
-        console.log(`[发送] game_start 事件到 ${socket.id}`)
-      }
-      
-      // Match会在setPlayer中检测两个玩家都加入后自动调用startGame
+      // Match会在setPlayer中检测两个玩家都加入后进入地图配置阶段
+      // 不再发送game_start，等待地图配置完成后再发送
       console.log(`[房间] ${socket.id} 加入了房间 ${roomCode}`)
     } else {
       console.log(`[错误] join_room 失败: ${result.message}`)
@@ -110,13 +101,28 @@ io.on('connection', (socket) => {
     // 设置人类玩家为玩家1
     matchManager.setPlayer(roomCode, socket.id, 0, avatarId)
     
-    // 初始化AI为玩家2
+    // 初始化AI为玩家2（只使用规则AI，不再支持神经网络AI选择）
     const aiSocketId = match.initAI(difficulty)
     
-    // 手动调用startGame，因为AI是通过initAI添加的，不会触发setPlayer中的自动调用
-    match.startGame()
+    // 单人模式：进入地图配置阶段，让玩家配置地图
+    // 注意：setPlayer会检测两个玩家都加入后进入CONFIGURING阶段，
+    // 但AI是通过initAI添加的，所以需要手动进入配置阶段
+    match.phase = 'configuring'
     
-    console.log(`[单人] 房间 ${roomCode} 创建成功, AI角色: ${match.aiPlayer.avatarId}`)
+    // 通知客户端进入地图配置阶段（玩家是房主，可以配置地图）
+    socket.emit('solo_game_started', {
+      roomCode: roomCode,
+      isPlayer1: true
+    })
+    
+    // 同时发送进入配置阶段的事件
+    socket.emit('enter_configuring', {
+      phase: 'configuring',
+      mapSizeOptions: GAME_CONFIG.MAP_SIZE_OPTIONS,
+      creatorId: socket.id  // 单人模式下玩家就是房主
+    })
+    
+    console.log(`[单人] 房间 ${roomCode} 创建成功, 进入地图配置阶段`)
   })
   
   // 地图大小选择（房主）
@@ -189,6 +195,15 @@ io.on('connection', (socket) => {
     const match = matchManager.getMatchBySocket(socket.id)
     if (match) {
       match.rejectRematch(socket.id)
+    }
+  })
+  
+  // 更换角色（在房间中实时更新）
+  socket.on('update_avatar', (data) => {
+    console.log(`[事件] ${socket.id} 更换角色: ${data.avatarId}`)
+    const match = matchManager.getMatchBySocket(socket.id)
+    if (match) {
+      match.updatePlayerAvatar(socket.id, data.avatarId)
     }
   })
   

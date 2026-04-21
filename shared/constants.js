@@ -418,9 +418,9 @@ export const MAP_EVENTS = {
     id: 'ice',
     name: '寒流冰冻',
     icon: '🧊',
-    description: '出牌阶段开始时，15%概率触发寒流，本回合所有牌效果无效',
+    description: '出牌阶段开始时，20%概率触发寒流，本回合所有牌效果无效',
     trigger: 'chance',  // 概率触发
-    chance: 0.15
+    chance: 0.20
   },
   volcano: {
     id: 'volcano',

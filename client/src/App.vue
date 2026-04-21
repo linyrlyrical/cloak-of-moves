@@ -251,6 +251,8 @@
         </div>
       </div>
       
+      <!-- 单人模式已移除AI选择，直接进入地图配置 -->
+      
       <!-- 房间号匹配界面 -->
       <div v-else-if="selectedMatchMode === 'room'" class="room-match-form">
         <div class="connect-form">
@@ -1077,6 +1079,7 @@ export default {
     // 飞牌动画状态（纯视觉效果）
     const flyingCard = ref(null)
     const showColdWaveEffect = ref(false)  // 寒流特效状态
+    const isFrozenRound = ref(false)  // 寒流回合标志（跳过出牌流程）
     
     // 发牌动画状态
     const dealingCards = ref([])  // 正在发的牌
@@ -1207,7 +1210,7 @@ export default {
     // 选择匹配模式
     const selectMatchMode = (mode) => {
       if (mode === 'solo') {
-        // 单人模式：直接发送开始请求
+        // 单人模式：直接开始，不再选择AI类型
         isSoloMode.value = true
         socket.value.emit('start_solo_game', { 
           avatarId: myAvatarId.value,
@@ -1219,6 +1222,16 @@ export default {
       if (mode === 'id') {
         showIdMatchLobby.value = true
       }
+    }
+    
+    // 开始单人游戏（选择AI类型后）
+    const startSoloGame = (aiType) => {
+      isSoloMode.value = true
+      socket.value.emit('start_solo_game', { 
+        avatarId: myAvatarId.value,
+        difficulty: 'normal',
+        aiType: aiType  // 'rule' 或 'neural'
+      })
     }
     
     // ID匹配成功
@@ -1882,7 +1895,11 @@ const currentTurn = computed(() => {
         isSoloMode.value = true
         // 进入地图配置阶段（单人模式下人类玩家就是房主）
         gameState.value.phase = 'configuring'
-        creatorId.value = socketId.value  // 单人模式自己就是房主
+        // 使用 socket.value.id 而不是 socketId.value，确保获取最新的 socket ID
+        creatorId.value = socket.value.id  // 单人模式自己就是房主
+        console.log('[客户端] 单人模式设置 creatorId:', creatorId.value, 'socketId:', socketId.value)
+        // 在配置界面播放背景音乐
+        audioManager.playBgmusic()
       })
       
       // 进入地图配置阶段
@@ -1897,6 +1914,8 @@ const currentTurn = computed(() => {
         player2SkillCooldown.value = 0
         skillSelected.value = false
         console.log('[客户端] 已重置技能CD状态')
+        // 在配置界面播放背景音乐
+        audioManager.playBgmusic()
       })
       
       // 地图配置完成
@@ -3102,6 +3121,12 @@ const currentTurn = computed(() => {
       myAvatarId.value = avatarId
       localStorage.setItem('myAvatarId', avatarId)
       showAvatarSelector.value = false
+      
+      // 如果已在房间中，实时同步角色更新到服务器
+      if (currentRoom.value && socket.value) {
+        socket.value.emit('update_avatar', { avatarId })
+        console.log('[客户端] 更新角色:', avatarId)
+      }
     }
     
     const closeAvatarSelector = () => {
@@ -3152,6 +3177,8 @@ const currentTurn = computed(() => {
       if (!dontShowRules.value) {
         showRules.value = true
       }
+      // 进入网页时播放背景音乐
+      audioManager.playBgmusic()
     })
     
     onUnmounted(() => {
@@ -3224,6 +3251,7 @@ const currentTurn = computed(() => {
       flyingCard,
       flyingCardStyle,
       showColdWaveEffect,
+      isFrozenRound,
       // 发牌动画
       showDealingAnimation,
       dealingCards,
@@ -3272,6 +3300,7 @@ const currentTurn = computed(() => {
       currentInvitation,
       idMatchLobbyRef,
       selectMatchMode,
+      startSoloGame,
       onIdMatchFound,
       onLeaveIdLobby,
       onInvitationReceived,
@@ -3542,6 +3571,81 @@ html, body {
 }
 
 .mode-desc {
+  font-size: 0.9rem;
+  color: #888;
+}
+
+/* 单人模式AI选择 */
+.solo-ai-select {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.solo-ai-select h3 {
+  font-size: 1.5rem;
+  color: white;
+  margin-bottom: 0.5rem;
+}
+
+.ai-type-options {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+}
+
+.ai-type-btn {
+  width: 180px;
+  height: 200px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 3px solid transparent;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+}
+
+.ai-type-btn:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+}
+
+.rule-ai-btn {
+  border-color: #ed8936;
+}
+
+.rule-ai-btn:hover {
+  background: linear-gradient(145deg, rgba(237, 137, 54, 0.1), #fff);
+  border-color: #dd6b20;
+}
+
+.neural-ai-btn {
+  border-color: #6c5ce7;
+}
+
+.neural-ai-btn:hover {
+  background: linear-gradient(145deg, rgba(108, 92, 231, 0.1), #fff);
+  border-color: #5b4cdb;
+}
+
+.ai-type-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.ai-type-name {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.ai-type-desc {
   font-size: 0.9rem;
   color: #888;
 }
