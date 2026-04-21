@@ -10,7 +10,7 @@ import { CARD_TYPES, DIRECTION_OFFSET, CHARACTER_SKILLS } from '../shared/consta
  * - hard: 最优策略，最小随机性，考虑更多因素
  */
 export class AIPlayer {
-  constructor(playerIndex, match, difficulty = 'normal') {
+  constructor(playerIndex, match, difficulty = 'normal', fogEnabled = true) {
     this.playerIndex = playerIndex
     this.match = match
     this.difficulty = difficulty
@@ -24,13 +24,20 @@ export class AIPlayer {
       hard: { randomness: 0.3, thinkDelay: 300, predictionLevel: 3 }
     }
     
-    this.selectRandomAvatar()
+    this.selectRandomAvatar(fogEnabled)
     console.log(`[AI] AI玩家初始化, 索引: ${playerIndex}, 难度: ${difficulty}, 角色: ${this.avatarId}`)
   }
   
-  selectRandomAvatar() {
+  selectRandomAvatar(fogEnabled = true) {
     const allAvatarIds = Object.values(CHARACTER_SKILLS).map(s => s.id)
     const excludedIds = ['thief_male']
+    
+    // 迷雾关闭时，排除阅读者角色（技能与迷雾相关）
+    if (!fogEnabled) {
+      excludedIds.push('reader_male', 'reader_female')
+      console.log(`[AI] 迷雾已关闭，排除阅读者角色`)
+    }
+    
     const availableAvatarIds = allAvatarIds.filter(id => !excludedIds.includes(id))
     this.avatarId = availableAvatarIds[Math.floor(Math.random() * availableAvatarIds.length)]
     console.log(`[AI] 可选角色: ${availableAvatarIds.join(', ')}, 选中: ${this.avatarId}`)

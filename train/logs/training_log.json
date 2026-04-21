@@ -1,0 +1,123 @@
+[
+  {
+    "iteration": 0,
+    "avg_loss": 0.25965287908911705,
+    "avg_reward_0": 0.3785000000000001,
+    "avg_reward_1": 0.05450000000000005,
+    "total_games": 20,
+    "buffer_size": 1832,
+    "temperature": 1.0,
+    "win_rate": 0.0,
+    "elapsed": 18.654187202453613
+  },
+  {
+    "iteration": 1,
+    "avg_loss": 0.09787609293286142,
+    "avg_reward_0": 0.6530000000000001,
+    "avg_reward_1": 0.012000000000000099,
+    "total_games": 20,
+    "buffer_size": 1808,
+    "temperature": 0.997,
+    "win_rate": 0.0,
+    "elapsed": 16.044066429138184
+  },
+  {
+    "iteration": 2,
+    "avg_loss": 0.07124644259993847,
+    "avg_reward_0": 0.12250000000000005,
+    "avg_reward_1": 0.314,
+    "total_games": 20,
+    "buffer_size": 1628,
+    "temperature": 0.994,
+    "win_rate": 0.0,
+    "elapsed": 14.773561000823975
+  },
+  {
+    "iteration": 3,
+    "avg_loss": 0.08995974563683072,
+    "avg_reward_0": 0.4005000000000002,
+    "avg_reward_1": 0.1430000000000001,
+    "total_games": 20,
+    "buffer_size": 1866,
+    "temperature": 0.991,
+    "win_rate": 0.0,
+    "elapsed": 16.6732816696167
+  },
+  {
+    "iteration": 4,
+    "avg_loss": 0.09579543925821782,
+    "avg_reward_0": -0.019999999999999917,
+    "avg_reward_1": 0.344,
+    "total_games": 20,
+    "buffer_size": 1586,
+    "temperature": 0.988,
+    "win_rate": 0.0,
+    "elapsed": 14.26590871810913
+  },
+  {
+    "iteration": 5,
+    "avg_loss": 0.04205665722489357,
+    "avg_reward_0": 0.35400000000000004,
+    "avg_reward_1": 0.1985,
+    "total_games": 20,
+    "buffer_size": 1597,
+    "temperature": 0.985,
+    "win_rate": 0.0,
+    "elapsed": 17.557859182357788
+  },
+  {
+    "iteration": 6,
+    "avg_loss": 0.036040137935843736,
+    "avg_reward_0": 0.21250000000000005,
+    "avg_reward_1": 0.192,
+    "total_games": 20,
+    "buffer_size": 1678,
+    "temperature": 0.982,
+    "win_rate": 0.0,
+    "elapsed": 18.94747567176819
+  },
+  {
+    "iteration": 7,
+    "avg_loss": 0.08002531980829579,
+    "avg_reward_0": -0.4169999999999999,
+    "avg_reward_1": 0.5535000000000001,
+    "total_games": 20,
+    "buffer_size": 1732,
+    "temperature": 0.979,
+    "win_rate": 0.0,
+    "elapsed": 19.462315320968628
+  },
+  {
+    "iteration": 8,
+    "avg_loss": 0.10313118786479418,
+    "avg_reward_0": 1.355,
+    "avg_reward_1": -0.16399999999999995,
+    "total_games": 20,
+    "buffer_size": 1603,
+    "temperature": 0.976,
+    "win_rate": 0.0,
+    "elapsed": 18.220423460006714
+  },
+  {
+    "iteration": 9,
+    "avg_loss": 0.08910268580970857,
+    "avg_reward_0": -0.09349999999999989,
+    "avg_reward_1": 0.483,
+    "total_games": 20,
+    "buffer_size": 1662,
+    "temperature": 0.973,
+    "win_rate": 0.1,
+    "elapsed": 19.611910820007324
+  },
+  {
+    "iteration": 10,
+    "avg_loss": 0.06652787384847479,
+    "avg_reward_0": 0.012000000000000099,
+    "avg_reward_1": 0.5830000000000002,
+    "total_games": 20,
+    "buffer_size": 1924,
+    "temperature": 0.97,
+    "win_rate": 0.0,
+    "elapsed": 22.41592836380005
+  }
+]

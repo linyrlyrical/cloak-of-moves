@@ -522,6 +522,12 @@ class Match {
     const width = this.map.width
     const height = this.map.height
     
+    // 单行地图不生成沙丘（会阻挡唯一通道）
+    if (this.map.isSingleRow || height === 1) {
+      console.log(`[沙丘] 单行地图，不生成沙丘`)
+      return
+    }
+    
     // 确定有效区域
     let validCells = []
     if (this.map.isShapeMap && this.map.shapeLayout) {
@@ -1807,6 +1813,14 @@ class Match {
     // ========== 冰原寒流检查 ==========
     // 如果本回合被冻结，跳过卡牌效果执行
     if (this.frozenThisRound) {
+      // 技能牌被冻结时，仍需触发CD（玩家已选择使用技能牌）
+      if (card.type === 'skill') {
+        if (player.skill && player.skill.cooldown) {
+          player.skillCooldown = player.skill.cooldown
+          console.log(`[寒流] 技能牌【${card.name}】被冻结，但CD已触发: ${player.skillCooldown}`)
+        }
+      }
+      
       console.log(`[寒流] 玩家${playerIndex + 1}的牌【${card.name}】被寒流冻结，效果无效`)
       this.io?.to(this.roomCode).emit('card_frozen', {
         playerIndex: playerIndex,
@@ -2054,11 +2068,20 @@ class Match {
     const opponent = this.playerStates[1 - playerIndex]
     
     // 计算当前位置的视野范围（与迷雾系统一致）
-    const visionRange = 2  // 视野范围：周围2格
+    // 使用勾股定理（欧几里得距离）计算圆形视野
+    const visionRange = 2  // 视野范围：半径2格
     const visionCells = []
     
     for (let dx = -visionRange; dx <= visionRange; dx++) {
       for (let dy = -visionRange; dy <= visionRange; dy++) {
+        // 使用勾股定理计算实际距离：distance = sqrt(dx² + dy²)
+        const distance = Math.sqrt(dx * dx + dy * dy)
+        
+        // 只有距离≤视野范围的格子才在视野内（圆形视野）
+        if (distance > visionRange) {
+          continue
+        }
+        
         const targetX = player.position.x + dx
         const targetY = player.position.y + dy
         
@@ -3303,8 +3326,8 @@ class Match {
   initAI(difficulty = 'normal') {
     this.isAIMatch = true
     
-    // 使用规则AI
-    this.aiPlayer = new AIPlayer(1, this, difficulty)
+    // 使用规则AI，传入迷雾状态
+    this.aiPlayer = new AIPlayer(1, this, difficulty, this.fogEnabled)
     console.log(`[AI] 使用规则AI (难度: ${difficulty})`)
     
     const aiSocketId = this.aiPlayer.getSocketId()

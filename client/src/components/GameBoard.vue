@@ -1369,46 +1369,96 @@ export default {
         transparent ${clearRadius}px, 
         black ${fogRadius}px)`)
       
-      // 2. 行探查：在整行每个格子添加光圈照亮效果（支持叠加）
+      // 2. 行探查：创建整行的方形透明条带（带渐变边缘效果）
       if (scoutEffects.value.some(e => e.type === 'row')) {
         const rowY = myPosition.value.y
-        for (let x = 0; x < mapWidth; x++) {
-          const cellCenterX = x * cellSize + cellSize / 2
-          const cellCenterY = rowY * cellSize + cellSize / 2
-          // 每个格子一个小光圈
-          masks.push(`radial-gradient(circle at ${cellCenterX}px ${cellCenterY}px, 
-            transparent 0%, 
-            transparent ${cellSize * 0.55}px, 
-            black ${cellSize * 0.75}px)`)
-        }
+        const rowTop = rowY * cellSize
+        const rowBottom = rowTop + cellSize
+        
+        const gradientSize = cellSize * 0.5  // 0.5格渐变过渡区域
+        
+        // 使用五段渐变：迷雾 → 渐变过渡 → 完全透明 → 渐变过渡 → 迷雾
+        masks.push(`linear-gradient(to bottom, 
+          black 0%, 
+          black ${rowTop - gradientSize}px, 
+          transparent ${rowTop}px, 
+          transparent ${rowBottom}px, 
+          black ${rowBottom + gradientSize}px, 
+          black 100%)`)
       }
       
-      // 3. 列探查：在整列每个格子添加光圈照亮效果（支持叠加）
+      // 3. 列探查：创建整列的方形透明条带（带渐变边缘效果）
       if (scoutEffects.value.some(e => e.type === 'col')) {
         const colX = myPosition.value.x
-        for (let y = 0; y < mapHeight; y++) {
-          const cellCenterX = colX * cellSize + cellSize / 2
-          const cellCenterY = y * cellSize + cellSize / 2
-          // 每个格子一个小光圈
-          masks.push(`radial-gradient(circle at ${cellCenterX}px ${cellCenterY}px, 
-            transparent 0%, 
-            transparent ${cellSize * 0.55}px, 
-            black ${cellSize * 0.75}px)`)
-        }
+        const colLeft = colX * cellSize
+        const colRight = colLeft + cellSize
+        
+        const gradientSize = cellSize * 0.5  // 0.5格渐变过渡区域
+        
+        // 使用五段渐变：迷雾 → 渐变过渡 → 完全透明 → 渐变过渡 → 迷雾
+        masks.push(`linear-gradient(to right, 
+          black 0%, 
+          black ${colLeft - gradientSize}px, 
+          transparent ${colLeft}px, 
+          transparent ${colRight}px, 
+          black ${colRight + gradientSize}px, 
+          black 100%)`)
       }
       
-      // 4. 回忆过去（男阅读者技能）：照亮历史视野中的所有格子
+      // 4. 回忆过去（男阅读者技能）：在格子连线上创建连续的圆形视野
+      // 这样可以形成"圆形链"，视觉上接近方形路径效果
       const recallPastEffects = scoutEffects.value.filter(e => e.type === 'recall_past')
       if (recallPastEffects.length > 0) {
-        for (const effect of recallPastEffects) {
-          if (effect.position) {
-            const cellCenterX = effect.position.x * cellSize + cellSize / 2
-            const cellCenterY = effect.position.y * cellSize + cellSize / 2
-            // 每个历史格子一个小光圈
-            masks.push(`radial-gradient(circle at ${cellCenterX}px ${cellCenterY}px, 
-              transparent 0%, 
-              transparent ${cellSize * 0.55}px, 
-              black ${cellSize * 0.75}px)`)
+        // 收集所有历史格子位置
+        const positions = recallPastEffects
+          .filter(e => e.position)
+          .map(e => ({ x: e.position.x, y: e.position.y }))
+        
+        // 每个格子中心创建一个圆形
+        for (const pos of positions) {
+          const cellCenterX = pos.x * cellSize + cellSize / 2
+          const cellCenterY = pos.y * cellSize + cellSize / 2
+          const clearRadius = cellSize * 0.8  // 0.8格半径（原来0.5格 + 增加0.3格）
+          masks.push(`radial-gradient(circle at ${cellCenterX}px ${cellCenterY}px, 
+            transparent 0%, 
+            transparent ${clearRadius}px, 
+            black ${clearRadius + 2}px)`)
+        }
+        
+        // 找出相邻格子之间的连线，在连线上创建连续的小圆形
+        // 判断相邻：水平相邻（x差1，y相同）或垂直相邻（y差1，x相同）
+        for (let i = 0; i < positions.length; i++) {
+          for (let j = i + 1; j < positions.length; j++) {
+            const p1 = positions[i]
+            const p2 = positions[j]
+            
+            // 检查是否相邻（水平或垂直）
+            const dx = Math.abs(p2.x - p1.x)
+            const dy = Math.abs(p2.y - p1.y)
+            
+            if ((dx === 1 && dy === 0) || (dx === 0 && dy === 1)) {
+              // 相邻格子，在连线上创建连续的小圆形
+              const centerX1 = p1.x * cellSize + cellSize / 2
+              const centerY1 = p1.y * cellSize + cellSize / 2
+              const centerX2 = p2.x * cellSize + cellSize / 2
+              const centerY2 = p2.y * cellSize + cellSize / 2
+              
+              // 连线长度 = cellSize (42px)
+              // 每隔 8px 创建一个小圆形，共 5 个圆形
+              const step = 8
+              const smallRadius = cellSize * 0.6  // 小圆形半径0.6格（原来0.3格 + 增加0.3格）
+              
+              for (let t = step; t < cellSize; t += step) {
+                const ratio = t / cellSize
+                const cx = centerX1 + (centerX2 - centerX1) * ratio
+                const cy = centerY1 + (centerY2 - centerY1) * ratio
+                
+                masks.push(`radial-gradient(circle at ${cx}px ${cy}px, 
+                  transparent 0%, 
+                  transparent ${smallRadius}px, 
+                  black ${smallRadius + 2}px)`)
+              }
+            }
           }
         }
       }
@@ -4254,12 +4304,8 @@ export default {
   left: 0;
   width: 100%;
   height: 100%;
-  background: radial-gradient(circle at center,
-    rgba(255, 215, 0, 0.4) 0%,
-    rgba(255, 193, 37, 0.3) 40%,
-    rgba(255, 165, 0, 0.15) 70%,
-    transparent 100%
-  );
+  /* 方形光圈效果 - 使用纯色+边框 */
+  background: rgba(255, 215, 0, 0.25);
   border-radius: 4px;
   animation: glow-pulse 1.5s ease-in-out infinite;
 }
