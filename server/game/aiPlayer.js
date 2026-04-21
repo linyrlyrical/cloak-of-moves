@@ -1,68 +1,60 @@
 import { CARD_TYPES, DIRECTION_OFFSET, CHARACTER_SKILLS } from '../shared/constants.js'
 
 /**
- * AI玩家 - 单人模式的人工智能
+ * AI玩家 - 单人模式的人工智能（增强版）
  * 负责自动执行选牌、排序、查看对手牌等决策
+ * 
+ * 难度说明：
+ * - easy: 较多随机性，反应慢，策略简单
+ * - normal: 平衡策略，适度随机性
+ * - hard: 最优策略，最小随机性，考虑更多因素
  */
 export class AIPlayer {
   constructor(playerIndex, match, difficulty = 'normal') {
-    this.playerIndex = playerIndex  // AI在match中的玩家索引(0或1)
-    this.match = match              // Match实例引用
-    this.difficulty = difficulty    // 难度: 'easy', 'normal', 'hard'
+    this.playerIndex = playerIndex
+    this.match = match
+    this.difficulty = difficulty
     this.aiSocketId = `AI_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
-    this.avatarId = null           // AI的角色ID
+    this.avatarId = null
     
-    // 随机选择一个角色
+    // 难度相关参数配置
+    this.difficultyConfig = {
+      easy: { randomness: 6, thinkDelay: 1500, predictionLevel: 0 },
+      normal: { randomness: 3, thinkDelay: 1000, predictionLevel: 1 },
+      hard: { randomness: 1, thinkDelay: 500, predictionLevel: 2 }
+    }
+    
     this.selectRandomAvatar()
-    
     console.log(`[AI] AI玩家初始化, 索引: ${playerIndex}, 难度: ${difficulty}, 角色: ${this.avatarId}`)
   }
   
-  // 随机选择角色（排除男盗贼，因为AI无法有效使用盗为己用技能）
   selectRandomAvatar() {
     const allAvatarIds = Object.values(CHARACTER_SKILLS).map(s => s.id)
-    // 排除男盗贼（thief_male），AI无法理解偷牌后如何正确执行偷来的牌
     const excludedIds = ['thief_male']
     const availableAvatarIds = allAvatarIds.filter(id => !excludedIds.includes(id))
     this.avatarId = availableAvatarIds[Math.floor(Math.random() * availableAvatarIds.length)]
     console.log(`[AI] 可选角色: ${availableAvatarIds.join(', ')}, 选中: ${this.avatarId}`)
   }
   
-  // 获取AI的socketId
-  getSocketId() {
-    return this.aiSocketId
-  }
+  getSocketId() { return this.aiSocketId }
+  getOpponentIndex() { return this.playerIndex === 0 ? 1 : 0 }
+  getMyState() { return this.match.playerStates[this.playerIndex] }
+  getOpponentState() { return this.match.playerStates[this.getOpponentIndex()] }
+  getDifficultyConfig() { return this.difficultyConfig[this.difficulty] || this.difficultyConfig.normal }
   
-  // 获取对手玩家索引
-  getOpponentIndex() {
-    return this.playerIndex === 0 ? 1 : 0
-  }
+  // ========== 基础位置计算 ==========
   
-  // 获取AI玩家状态
-  getMyState() {
-    return this.match.playerStates[this.playerIndex]
-  }
-  
-  // 获取对手玩家状态
-  getOpponentState() {
-    return this.match.playerStates[this.getOpponentIndex()]
-  }
-  
-  // 计算与对手的曼哈顿距离
   getDistanceToOpponent() {
     const myPos = this.getMyState().position
     const oppPos = this.getOpponentState().position
     return Math.abs(myPos.x - oppPos.x) + Math.abs(myPos.y - oppPos.y)
   }
   
-  // 获取朝向对手的方向
   getDirectionToOpponent() {
     const myPos = this.getMyState().position
     const oppPos = this.getOpponentState().position
     const dx = oppPos.x - myPos.x
     const dy = oppPos.y - myPos.y
-    
-    // 优先移动较大的轴向
     if (Math.abs(dx) >= Math.abs(dy)) {
       return dx > 0 ? 'right' : 'left'
     } else {
@@ -70,14 +62,12 @@ export class AIPlayer {
     }
   }
   
-  // 获取远离对手的方向
   getDirectionAwayFromOpponent() {
     const dir = this.getDirectionToOpponent()
     const opposite = { up: 'down', down: 'up', left: 'right', right: 'left' }
     return opposite[dir]
   }
   
-  // 检查某个方向是否可以移动
   canMoveInDirection(direction) {
     const myPos = this.getMyState().position
     const offset = DIRECTION_OFFSET[direction]
@@ -86,129 +76,169 @@ export class AIPlayer {
     const newX = myPos.x + offset.x
     const newY = myPos.y + offset.y
     
-    // 检查边界
-    if (newX < 0 || newX >= this.match.map.width || newY < 0 || newY >= this.match.map.height) {
-      return false
-    }
+    if (newX < 0 || newX >= this.match.map.width || newY < 0 || newY >= this.match.map.height) return false
     
-    // 检查特色地形边界
     if (this.match.map.isShapeMap && this.match.map.shapeLayout) {
-      if (!this.match.map.shapeLayout[newY] || this.match.map.shapeLayout[newY][newX] !== 1) {
-        return false
-      }
+      if (!this.match.map.shapeLayout[newY] || this.match.map.shapeLayout[newY][newX] !== 1) return false
     }
     
-    // 检查障碍物（非边界障碍物）
-    const isBlocked = this.match.map.obstacles.some(o => o.x === newX && o.y === newY && !o.isBoundary)
-    if (isBlocked) return false
+    if (this.match.map.obstacles.some(o => o.x === newX && o.y === newY && !o.isBoundary)) return false
+    if (this.match.map.sandDunes?.some(d => d.x === newX && d.y === newY)) return false
     
-    // 检查对手位置
     const oppPos = this.getOpponentState().position
     if (oppPos.x === newX && oppPos.y === newY) return false
     
     return true
   }
   
-  // 获取可移动的方向列表
   getMovableDirections() {
     return ['up', 'down', 'left', 'right'].filter(d => this.canMoveInDirection(d))
   }
   
-  // 检查某个方向攻击是否能命中对手
+  // ========== 高级位置分析 ==========
+  
   canAttackHitOpponent(direction, range = 1) {
     const myPos = this.getMyState().position
     const oppPos = this.getOpponentState().position
     const offset = DIRECTION_OFFSET[direction]
     if (!offset) return false
     
-    for (let i = 1; i <= range; i++) {
+    // 女骑士攻击范围+1
+    const mySkill = this.getMyState().skill
+    const isSkillSealed = this.match.skillSealed
+    let actualRange = range
+    if (mySkill?.id === 'knight_female' && !isSkillSealed) {
+      actualRange = range + 1
+    }
+    
+    for (let i = 1; i <= actualRange; i++) {
       const checkX = myPos.x + offset.x * i
       const checkY = myPos.y + offset.y * i
       
-      // 超出地图
       if (checkX < 0 || checkX >= this.match.map.width || checkY < 0 || checkY >= this.match.map.height) break
-      
-      // 检查特色地形
       if (this.match.map.isShapeMap && this.match.map.shapeLayout) {
         if (!this.match.map.shapeLayout[checkY] || this.match.map.shapeLayout[checkY][checkX] !== 1) break
       }
-      
-      // 遇到障碍物（非边界）则阻挡
-      const isBlocked = this.match.map.obstacles.some(o => o.x === checkX && o.y === checkY && !o.isBoundary)
-      if (isBlocked) break
-      
-      // 命中对手
+      if (this.match.map.obstacles.some(o => o.x === checkX && o.y === checkY && !o.isBoundary)) break
       if (checkX === oppPos.x && checkY === oppPos.y) return true
     }
     return false
   }
   
-  // 选择能命中对手的攻击方向
   getBestAttackDirection(range = 1) {
     const directions = ['up', 'down', 'left', 'right']
-    // 优先朝对手方向
     const preferredDir = this.getDirectionToOpponent()
     const orderedDirs = [preferredDir, ...directions.filter(d => d !== preferredDir)]
     
     for (const dir of orderedDirs) {
-      if (this.canAttackHitOpponent(dir, range)) {
-        return dir
-      }
+      if (this.canAttackHitOpponent(dir, range)) return dir
     }
     return null
   }
   
-  // ========== 选牌策略 ==========
+  // 计算对手能攻击到的格子
+  getOpponentAttackRange() {
+    const oppPos = this.getOpponentState().position
+    const attackCells = new Set()
+    const directions = ['up', 'down', 'left', 'right']
+    
+    for (const dir of directions) {
+      const offset = DIRECTION_OFFSET[dir]
+      for (let range = 1; range <= 2; range++) {
+        const checkX = oppPos.x + offset.x * range
+        const checkY = oppPos.y + offset.y * range
+        
+        if (checkX < 0 || checkX >= this.match.map.width || checkY < 0 || checkY >= this.match.map.height) break
+        if (this.match.map.isShapeMap && this.match.map.shapeLayout) {
+          if (!this.match.map.shapeLayout[checkY] || this.match.map.shapeLayout[checkY][checkX] !== 1) break
+        }
+        if (this.match.map.obstacles.some(o => o.x === checkX && o.y === checkY && !o.isBoundary)) break
+        attackCells.add(`${checkX},${checkY}`)
+      }
+    }
+    return attackCells
+  }
   
-  // 从currentCards中选3张牌
+  isInOpponentAttackRange() {
+    const myPos = this.getMyState().position
+    return this.getOpponentAttackRange().has(`${myPos.x},${myPos.y}`)
+  }
+  
+  isSafeMove(direction) {
+    const myPos = this.getMyState().position
+    const offset = DIRECTION_OFFSET[direction]
+    if (!offset) return false
+    const newX = myPos.x + offset.x
+    const newY = myPos.y + offset.y
+    return !this.getOpponentAttackRange().has(`${newX},${newY}`)
+  }
+  
+  // BFS路径规划
+  findPathToPosition(targetPos) {
+    const myPos = this.getMyState().position
+    const queue = [{ x: myPos.x, y: myPos.y, path: [] }]
+    const visited = new Set([`${myPos.x},${myPos.y}`])
+    const directions = ['up', 'down', 'left', 'right']
+    
+    while (queue.length > 0) {
+      const current = queue.shift()
+      if (current.x === targetPos.x && current.y === targetPos.y) return current.path
+      
+      for (const dir of directions) {
+        const offset = DIRECTION_OFFSET[dir]
+        const newX = current.x + offset.x
+        const newY = current.y + offset.y
+        const key = `${newX},${newY}`
+        
+        if (visited.has(key)) continue
+        if (newX < 0 || newX >= this.match.map.width || newY < 0 || newY >= this.match.map.height) continue
+        if (this.match.map.isShapeMap && this.match.map.shapeLayout) {
+          if (!this.match.map.shapeLayout[newY] || this.match.map.shapeLayout[newY][newX] !== 1) continue
+        }
+        if (this.match.map.obstacles.some(o => o.x === newX && o.y === newY && !o.isBoundary)) continue
+        if (this.match.map.sandDunes?.some(d => d.x === newX && d.y === newY)) continue
+        
+        visited.add(key)
+        queue.push({ x: newX, y: newY, path: [...current.path, dir] })
+      }
+    }
+    return []
+  }
+  
+  // ========== 战术决策 ==========
+  
+  // 判断应该追击还是逃跑
+  shouldChaseOrEscape() {
+    const myHp = this.getMyState().hp
+    const oppHp = this.getOpponentState().hp
+    const distance = this.getDistanceToOpponent()
+    
+    // 血量优势时追击
+    if (myHp > oppHp + 1) return 'chase'
+    // 血量劣势且近距离时逃跑
+    if (myHp < oppHp && distance <= 2) return 'escape'
+    // 在对手攻击范围内且血量低时逃跑
+    if (this.isInOpponentAttackRange() && myHp <= 2) return 'escape'
+    // 默认保持距离
+    return 'neutral'
+  }
+  
+  // ========== 智能选牌策略 ==========
+  
   selectCards() {
     const currentCards = this.getMyState().currentCards
+    const config = this.getDifficultyConfig()
     const distance = this.getDistanceToOpponent()
     const myHp = this.getMyState().hp
-    const maxHp = this.match.playerStates[this.playerIndex].hp
+    const oppHp = this.getOpponentState().hp
+    const isInDanger = this.isInOpponentAttackRange()
+    const tactic = this.shouldChaseOrEscape()
     
     // 评估每张牌的价值
     const cardValues = currentCards.map((card, index) => {
-      let value = 0
-      
-      if (card.isSkillCard) {
-        // 主动技能牌
-        if (card.sealed) {
-          value = 0  // 封印状态下不选
-        } else {
-          value = 8  // 技能牌优先级高
-        }
-      } else {
-        switch (card.type) {
-          case 'attack':
-            // 距离近时攻击价值高
-            if (this.getBestAttackDirection(card.range || 1)) {
-              value = distance <= 2 ? 9 : 4
-            } else {
-              value = distance <= 3 ? 3 : 1
-            }
-            break
-          case 'defense':
-            // 血量低或对手可能攻击时防御价值高
-            value = myHp <= 3 ? 8 : 5
-            break
-          case 'move':
-            // 距离远时移动价值高
-            value = distance > 2 ? 7 : 3
-            break
-          case 'scout':
-            // 探查价值适中，远距离略高
-            value = distance > 2 ? 6 : 4
-            break
-          default:
-            value = 3
-        }
-      }
-      
-      // 添加随机性（根据难度调整）
-      const randomness = this.difficulty === 'easy' ? 5 : (this.difficulty === 'hard' ? 1 : 3)
-      value += Math.random() * randomness
-      
+      let value = this.evaluateCard(card, distance, myHp, oppHp, isInDanger, tactic)
+      // 添加随机性
+      value += Math.random() * config.randomness
       return { index, value, card }
     })
     
@@ -216,59 +246,148 @@ export class AIPlayer {
     cardValues.sort((a, b) => b.value - a.value)
     const selectedIndices = cardValues.slice(0, 3).map(cv => cv.index)
     
-    console.log(`[AI] 选牌: ${selectedIndices}, 卡牌: ${selectedIndices.map(i => currentCards[i].name).join(', ')}`)
+    console.log(`[AI] 选牌: ${selectedIndices.map(i => currentCards[i].name).join(', ')}, 战术: ${tactic}`)
     return selectedIndices
   }
   
-  // ========== 排序策略 ==========
+  // 评估单张牌的价值
+  evaluateCard(card, distance, myHp, oppHp, isInDanger, tactic) {
+    if (card.isSkillCard) {
+      if (card.sealed) return 0
+      return this.evaluateSkillCard(card, distance, myHp, oppHp)
+    }
+    
+    switch (card.type) {
+      case 'attack':
+        return this.evaluateAttackCard(card, distance, oppHp, tactic)
+      case 'defense':
+        return this.evaluateDefenseCard(myHp, isInDanger)
+      case 'move':
+        return this.evaluateMoveCard(distance, tactic, isInDanger)
+      case 'scout':
+        return this.evaluateScoutCard(distance)
+      default:
+        return 3
+    }
+  }
   
-  // 排列3张手牌的出牌顺序
+  evaluateAttackCard(card, distance, oppHp, tactic) {
+    const range = card.range || 1
+    const canHit = this.getBestAttackDirection(range) !== null
+    
+    if (!canHit) {
+      // 无法命中时价值低
+      return distance <= 3 ? 2 : 1
+    }
+    
+    let value = 0
+    // 基础价值：能命中的攻击
+    value = distance <= range ? 10 : 6
+    
+    // 2格攻击范围更灵活
+    if (range === 2) value += 2
+    
+    // 追击战术时攻击价值更高
+    if (tactic === 'chase') value += 3
+    
+    // 对手血量低时攻击价值更高（可以终结）
+    if (oppHp <= 1) value += 5
+    
+    return value
+  }
+  
+  evaluateDefenseCard(myHp, isInDanger) {
+    let value = 5
+    
+    // 血量低时防御更重要
+    if (myHp <= 2) value += 6
+    else if (myHp <= 3) value += 3
+    
+    // 在对手攻击范围内时防御更重要
+    if (isInDanger) value += 4
+    
+    return value
+  }
+  
+  evaluateMoveCard(distance, tactic, isInDanger) {
+    let value = 3
+    
+    // 逃跑战术时移动价值高
+    if (tactic === 'escape') {
+      value = isInDanger ? 9 : 7
+    }
+    // 追击战术时，距离远则移动价值高
+    else if (tactic === 'chase') {
+      value = distance > 3 ? 8 : 4
+    }
+    // 中立战术时
+    else {
+      value = distance > 2 ? 6 : 3
+    }
+    
+    // 检查是否有安全的移动方向
+    const movableDirs = this.getMovableDirections()
+    const safeDirs = movableDirs.filter(d => this.isSafeMove(d))
+    if (safeDirs.length === 0 && isInDanger) {
+      // 无路可逃，防御可能更重要
+      value -= 2
+    }
+    
+    return value
+  }
+  
+  evaluateScoutCard(distance) {
+    // 迷雾关闭时探查牌无用
+    if (!this.match.fogEnabled) return 0
+    
+    let value = 4
+    // 远距离时探查更有用（需要找到对手）
+    if (distance > 3) value += 2
+    
+    return value
+  }
+  
+  evaluateSkillCard(card, distance, myHp, oppHp) {
+    const skillId = card.skillId
+    let value = 8
+    
+    // 根据不同技能调整价值
+    switch (skillId) {
+      case 'mage_male': // 天降陨石
+        value = 10 // 高价值AOE
+        break
+      case 'knight_male': // 旋风斩
+        value = distance <= 1 ? 10 : 3 // 近距离才有价值
+        break
+      case 'reader_male': // 回忆过去
+        value = 5 // 查看历史视野，辅助性
+        break
+      case 'archer_male': // 百步穿杨
+        // 远距离穿透攻击
+        value = distance > 2 ? 9 : 6
+        break
+    }
+    
+    return value
+  }
+  
+  // ========== 智能排序策略 ==========
+  
   orderCards(handCards) {
+    const config = this.getDifficultyConfig()
     const distance = this.getDistanceToOpponent()
     const myHp = this.getMyState().hp
+    const oppHp = this.getOpponentState().hp
+    const isInDanger = this.isInOpponentAttackRange()
+    const tactic = this.shouldChaseOrEscape()
+    const isPriority = this.match.isPlayer1Priority ? (this.playerIndex === 0) : (this.playerIndex === 1)
     
-    // 评估每张牌在当前回合顺序中的优先级
     const cardPriorities = handCards.map((card, index) => {
-      let priority = 0
-      
-      if (card.isSkillCard) {
-        priority = 7
-      } else {
-        switch (card.type) {
-          case 'attack':
-            // 先手攻击优先
-            priority = distance <= 2 ? 8 : 3
-            break
-          case 'defense':
-            // 如果对手可能先攻击，防御优先
-            priority = 6
-            break
-          case 'move':
-            // 远距离时先移动
-            priority = distance > 2 ? 7 : 2
-            break
-          case 'scout':
-            // 探查通常先使用
-            priority = 5
-            break
-          default:
-            priority = 3
-        }
-      }
-      
-      // 低血量时防御优先级提升
-      if (card.type === 'defense' && myHp <= 2) {
-        priority += 3
-      }
-      
-      // 添加随机性
-      const randomness = this.difficulty === 'easy' ? 4 : (this.difficulty === 'hard' ? 0.5 : 2)
-      priority += Math.random() * randomness
-      
+      let priority = this.calculateCardPriority(card, distance, myHp, oppHp, isInDanger, tactic, isPriority)
+      priority += Math.random() * config.randomness * 0.5
       return { index, priority, card }
     })
     
-    // 按优先级排序（高的先出）
     cardPriorities.sort((a, b) => b.priority - a.priority)
     const orderedCards = cardPriorities.map(cp => cp.card)
     
@@ -276,11 +395,96 @@ export class AIPlayer {
     return orderedCards
   }
   
+  calculateCardPriority(card, distance, myHp, oppHp, isInDanger, tactic, isPriority) {
+    // 技能牌优先级处理
+    if (card.isSkillCard) {
+      if (card.sealed) return 0
+      
+      // 根据技能类型决定优先级
+      const skillId = card.skillId
+      if (skillId === 'knight_male') {
+        // 旋风斩需要近距离，距离合适时优先出
+        return distance <= 1 ? 10 : 2
+      }
+      if (skillId === 'mage_male') {
+        // 陨石开局先出
+        return 9
+      }
+      return 7
+    }
+    
+    let priority = 0
+    
+    switch (card.type) {
+      case 'attack':
+        const canHit = this.getBestAttackDirection(card.range || 1) !== null
+        if (canHit) {
+          // 先手时攻击优先
+          if (isPriority) {
+            priority = distance <= 2 ? 9 : 5
+          } else {
+            // 后手时，根据情况决定
+            priority = tactic === 'chase' ? 8 : 6
+          }
+        } else {
+          priority = 2
+        }
+        break
+        
+      case 'defense':
+        // 血量低或处于危险时防御优先
+        if (myHp <= 2 && isInDanger) {
+          priority = isPriority ? 6 : 10 // 后手更需要防御
+        } else if (myHp <= 3) {
+          priority = 7
+        } else {
+          priority = 5
+        }
+        break
+        
+      case 'move':
+        // 逃跑战术时移动高优先
+        if (tactic === 'escape' && isInDanger) {
+          priority = 10
+        } else if (tactic === 'chase' && distance > 2) {
+          // 追击时先移动接近
+          priority = isPriority ? 8 : 6
+        } else {
+          priority = 3
+        }
+        break
+        
+      case 'scout':
+        // 迷雾关闭时无用
+        if (!this.match.fogEnabled) return 0
+        priority = distance > 3 ? 6 : 4
+        break
+    }
+    
+    return priority
+  }
+  
   // ========== 查看对手牌策略 ==========
   
-  // 选择查看对手的第一张还是最后一张
   chooseViewOpponentCard() {
-    // 随机选择，稍微偏向第一张
+    const config = this.getDifficultyConfig()
+    
+    if (config.predictionLevel >= 2) {
+      // Hard难度：更智能的选择
+      const distance = this.getDistanceToOpponent()
+      // 近距离时第一张可能是攻击，远距离时可能是移动
+      if (distance <= 2) {
+        // 查看第一张（可能是攻击牌）
+        console.log(`[AI] 选择查看对手第一张牌（预测攻击）`)
+        return 'first'
+      } else {
+        // 查看最后一张（可能是移动或特殊牌）
+        console.log(`[AI] 选择查看对手最后一张牌`)
+        return 'last'
+      }
+    }
+    
+    // 简单策略：随机偏向第一张
     const choice = Math.random() < 0.6 ? 'first' : 'last'
     console.log(`[AI] 选择查看对手${choice === 'first' ? '第一张' : '最后一张'}牌`)
     return choice
@@ -288,9 +492,10 @@ export class AIPlayer {
   
   // ========== 执行AI回合 ==========
   
-  // AI自动执行选牌流程（带延迟）
   executeSelectCards() {
-    const delay = 1000 + Math.random() * 1500  // 1-2.5秒延迟
+    const config = this.getDifficultyConfig()
+    const delay = config.thinkDelay + Math.random() * 1000
+    
     setTimeout(() => {
       if (this.match.phase !== 'selecting_priority' && this.match.phase !== 'selecting_normal') {
         console.log(`[AI] 阶段已变更，跳过选牌`)
@@ -298,14 +503,14 @@ export class AIPlayer {
       }
       
       const selectedIndices = this.selectCards()
-      // 直接调用match的方法，用AI的socketId
       this.match.selectCards(this.aiSocketId, selectedIndices)
     }, delay)
   }
   
-  // AI自动执行排序流程（带延迟）
   executeConfirmOrder() {
-    const delay = 800 + Math.random() * 1200  // 0.8-2秒延迟
+    const config = this.getDifficultyConfig()
+    const delay = config.thinkDelay * 0.8 + Math.random() * 500
+    
     setTimeout(() => {
       if (this.match.phase !== 'ordering_priority' && this.match.phase !== 'ordering_normal') {
         console.log(`[AI] 阶段已变更，跳过排序`)
@@ -323,25 +528,25 @@ export class AIPlayer {
     }, delay)
   }
   
-  // AI自动执行查看对手牌流程（带延迟）
   executeViewOpponentCard() {
-    const delay = 500 + Math.random() * 1000  // 0.5-1.5秒延迟
+    const delay = 500 + Math.random() * 500
+    
     setTimeout(() => {
       const choice = this.chooseViewOpponentCard()
       this.match.viewOpponentCard(this.aiSocketId, choice)
     }, delay)
   }
   
-  // AI自动执行出牌（带延迟）
   executePlayCard() {
-    const delay = 300 + Math.random() * 700  // 0.3-1秒延迟
+    const config = this.getDifficultyConfig()
+    const delay = 200 + Math.random() * 300
+    
     setTimeout(() => {
       if (this.match.phase !== 'playing') {
         console.log(`[AI] 不在出牌阶段，跳过出牌`)
         return
       }
       
-      // 检查是否轮到AI
       const priorityIndex = this.match.isPlayer1Priority ? 0 : 1
       const isPriorityTurn = this.match.turnIndex % 2 === 0
       const currentPlayerIndex = isPriorityTurn ? priorityIndex : (1 - priorityIndex)
@@ -355,12 +560,8 @@ export class AIPlayer {
     }, delay)
   }
   
-  // AI设置地图配置（单人模式下由玩家配置，AI不需要）
-  // 这个方法留空，因为单人模式只有玩家配置地图
-  
-  // AI处理再来一局
   executeRematch() {
-    const delay = 1000 + Math.random() * 1000
+    const delay = 1000 + Math.random() * 500
     setTimeout(() => {
       this.match.requestRematch(this.aiSocketId)
     }, delay)
