@@ -1188,6 +1188,21 @@ export default {
     // 设置面板相关
     const showSettings = ref(false)
     
+    // ==================== 防双击锁定状态 ====================
+    const isSelectingMatchMode = ref(false)  // 选择匹配模式锁定
+    const isStartingSoloGame = ref(false)    // 开始单人游戏锁定
+    const isCreatingRoom = ref(false)        // 创建房间锁定
+    const isJoiningRoom = ref(false)         // 加入房间锁定
+    const isConfirmingSelection = ref(false) // 确认选牌锁定
+    const isConfirmingOrder = ref(false)     // 确认顺序锁定
+    const isRequestingRematch = ref(false)   // 请求再来一局锁定
+    const isAcceptingRematch = ref(false)    // 接受再来一局锁定
+    const isRejectingRematch = ref(false)    // 拒绝再来一局锁定
+    const isConfirmingCardChoice = ref(false)// 确认查看手牌锁定
+    
+    // ==================== 背景音乐首次交互播放 ====================
+    const hasUserInteracted = ref(false)     // 用户是否已首次交互+++++++ REPLACE
+    
     // ==================== 随机事件悬停浮窗相关 ====================
     const hoveredThemeId = ref(null)  // 当前悬停的主题ID
     const showEventTooltip = ref(false)  // 是否显示随机事件浮窗
@@ -1250,24 +1265,53 @@ export default {
     // 单人模式难度选择
     const selectedDifficulty = ref('')
     
+    // ==================== 首次交互时触发背景音乐 ====================
+    const triggerFirstInteractionBgmusic = () => {
+      if (!hasUserInteracted.value) {
+        hasUserInteracted.value = true
+        audioManager.playBgmusic()
+        console.log('[AudioManager] 用户首次交互，开始播放背景音乐')
+      }
+    }
+    
     // 选择匹配模式
     const selectMatchMode = (mode) => {
+      // 防双击检查
+      if (isSelectingMatchMode.value) return
+      
+      // 首次交互触发背景音乐
+      triggerFirstInteractionBgmusic()
+      
+      isSelectingMatchMode.value = true
       selectedMatchMode.value = mode
       if (mode === 'id') {
         showIdMatchLobby.value = true
       }
       // 单人模式：不再直接启动，而是显示难度选择界面
+      // 200ms后解锁（模式切换是即时操作）
+      setTimeout(() => {
+        isSelectingMatchMode.value = false
+      }, 200)
     }
     
     // 开始单人游戏（选择难度后）
     const startSoloGame = () => {
-      if (!selectedDifficulty.value) return
+      if (!selectedDifficulty.value || isStartingSoloGame.value) return
+      
+      // 首次交互触发背景音乐
+      triggerFirstInteractionBgmusic()
+      
+      isStartingSoloGame.value = true
       console.log('[客户端] 开始单人游戏，难度:', selectedDifficulty.value)
       isSoloMode.value = true
       socket.value.emit('start_solo_game', { 
         avatarId: myAvatarId.value,
         difficulty: selectedDifficulty.value
       })
+      // 服务器响应后会切换阶段，这里设置1秒超时解锁
+      setTimeout(() => {
+        isStartingSoloGame.value = false
+      }, 1000)
     }
     
     // ID匹配成功
@@ -2747,8 +2791,19 @@ const currentTurn = computed(() => {
     
     // 房间操作
     const createRoom = () => {
+      // 防双击检查
+      if (isCreatingRoom.value) return
+      
+      // 首次交互触发背景音乐
+      triggerFirstInteractionBgmusic()
+      
+      isCreatingRoom.value = true
       audioManager.playClick()
       socket.value.emit('create_room', { avatarId: myAvatarId.value })
+      // 服务器响应后会切换阶段，设置2秒超时解锁
+      setTimeout(() => {
+        isCreatingRoom.value = false
+      }, 2000)
     }
     
     const joinRoom = () => {
@@ -2756,8 +2811,19 @@ const currentTurn = computed(() => {
         errorMessage.value = '请输入房间号'
         return
       }
+      // 防双击检查
+      if (isJoiningRoom.value) return
+      
+      // 首次交互触发背景音乐
+      triggerFirstInteractionBgmusic()
+      
+      isJoiningRoom.value = true
       audioManager.playClick()
       socket.value.emit('join_room', { roomCode: roomCode.value, avatarId: myAvatarId.value })
+      // 服务器响应后会切换阶段，设置2秒超时解锁
+      setTimeout(() => {
+        isJoiningRoom.value = false
+      }, 2000)
     }
     
     // 卡牌选择（统一处理技能牌和普通牌）
@@ -2874,8 +2940,9 @@ const currentTurn = computed(() => {
     
     const confirmCardSelection = () => {
       // 统一检查：必须选满3张牌
-      if (selectedCards.value.length !== 3) return
+      if (selectedCards.value.length !== 3 || isConfirmingSelection.value) return
       
+      isConfirmingSelection.value = true  // 锁定防止双击
       // 播放点击音效
       audioManager.playClick()
       
@@ -2886,6 +2953,10 @@ const currentTurn = computed(() => {
       socket.value.emit('select_cards', { 
         selectedCards: selectedCards.value
       })
+      // 服务器响应后会切换阶段，设置1秒超时解锁
+      setTimeout(() => {
+        isConfirmingSelection.value = false
+      }, 1000)
     }
     
     // 手牌顺序调整
@@ -2901,8 +2972,9 @@ const currentTurn = computed(() => {
     
     const confirmHandOrder = () => {
       // 防止重复确认
-      if (orderLocked.value) return
+      if (orderLocked.value || isConfirmingOrder.value) return
       
+      isConfirmingOrder.value = true  // 锁定防止双击
       // 播放点击音效
       audioManager.playClick()
       
@@ -2912,6 +2984,10 @@ const currentTurn = computed(() => {
       // 立即锁定顺序，防止再次调整
       orderLocked.value = true
       socket.value.emit('confirm_order', myHandCards.value)
+      // 1秒后解锁（状态已由orderLocked控制）
+      setTimeout(() => {
+        isConfirmingOrder.value = false
+      }, 1000)
     }
     
     // 出牌
@@ -3097,20 +3173,44 @@ const currentTurn = computed(() => {
     
     // 请求再来一局
     const requestRematch = () => {
+      // 防双击检查
+      if (isRequestingRematch.value) return
+      
+      isRequestingRematch.value = true
       console.log('[客户端] 请求再来一局')
       socket.value.emit('request_rematch')
+      // 设置3秒超时解锁
+      setTimeout(() => {
+        isRequestingRematch.value = false
+      }, 3000)
     }
     
     // 接受再来一局
     const acceptRematch = () => {
+      // 防双击检查
+      if (isAcceptingRematch.value) return
+      
+      isAcceptingRematch.value = true
       console.log('[客户端] 接受再来一局')
       socket.value.emit('accept_rematch')
+      // 设置1秒超时解锁
+      setTimeout(() => {
+        isAcceptingRematch.value = false
+      }, 1000)
     }
     
     // 拒绝再来一局
     const rejectRematch = () => {
+      // 防双击检查
+      if (isRejectingRematch.value) return
+      
+      isRejectingRematch.value = true
       console.log('[客户端] 拒绝再来一局')
       socket.value.emit('reject_rematch')
+      // 设置1秒超时解锁
+      setTimeout(() => {
+        isRejectingRematch.value = false
+      }, 1000)
     }
     
     // 再来一局（旧的直接开始，保留兼容）
@@ -3186,7 +3286,9 @@ const currentTurn = computed(() => {
     }
     
     const confirmCardChoice = () => {
-      if (!viewedCardChoice.value) return
+      if (!viewedCardChoice.value || isConfirmingCardChoice.value) return
+      
+      isConfirmingCardChoice.value = true  // 锁定防止双击
       // 播放点击音效
       audioManager.playClick()
       console.log('[客户端] 选择查看对手的', viewedCardChoice.value, '牌')
@@ -3205,6 +3307,10 @@ const currentTurn = computed(() => {
       
       // 发送选择到服务器
       socket.value.emit('view_opponent_card', viewedCardChoice.value)
+      // 服务器响应后会切换阶段，设置1秒超时解锁
+      setTimeout(() => {
+        isConfirmingCardChoice.value = false
+      }, 1000)
     }
     
     onMounted(() => {
@@ -3215,8 +3321,8 @@ const currentTurn = computed(() => {
       if (!dontShowRules.value) {
         showRules.value = true
       }
-      // 进入网页时播放背景音乐
-      audioManager.playBgmusic()
+      // 注意：背景音乐改为用户首次交互时触发（浏览器禁止自动播放）
+      // triggerFirstInteractionBgmusic() 会自动播放
     })
     
     onUnmounted(() => {
