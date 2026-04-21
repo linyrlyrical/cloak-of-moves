@@ -722,6 +722,28 @@ class Match {
     this.playerStates[playerIndex].avatarId = avatarId
     console.log(`[角色] 玩家${playerIndex + 1} (${socketId}) 更换角色为: ${avatarId}`)
     
+    // ========== 技能更新逻辑（与setPlayer方法一致）==========
+    if (avatarId) {
+      const skillConfig = getCharacterSkillById(avatarId)
+      if (skillConfig) {
+        this.playerStates[playerIndex].skill = skillConfig
+        console.log(`[技能] 玩家${playerIndex + 1}更换技能: ${skillConfig.skillName} (${skillConfig.skillType === 'active' ? '主动' : '被动'})`)
+        
+        // 女骑士血量加成处理
+        if (skillConfig.bonusHp) {
+          this.playerStates[playerIndex].hp = GAME_CONFIG.INITIAL_HP + skillConfig.bonusHp
+          console.log(`[技能] 女骑士坚韧突刺：血量更新为 ${this.playerStates[playerIndex].hp}`)
+        } else {
+          // 如果之前是女骑士，现在换成其他角色，需要恢复默认血量
+          this.playerStates[playerIndex].hp = GAME_CONFIG.INITIAL_HP
+        }
+        
+        // 重置技能冷却
+        this.playerStates[playerIndex].skillCooldown = 0
+        this.playerStates[playerIndex].skillSelected = false
+      }
+    }
+    
     // 检查两个玩家是否都已加入
     if (this.playerStates[0].id && this.playerStates[1].id) {
       // 进入地图配置阶段，通知房主（玩家1）选择地图大小

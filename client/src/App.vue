@@ -425,10 +425,10 @@
         
         <button 
           class="btn btn-primary confirm-map-btn" 
-          :disabled="!selectedMapSize"
+          :disabled="!selectedMapSize || isConfirmingMap"
           @click="confirmMapSize"
         >
-          确认配置
+          {{ isConfirmingMap ? '配置中...' : '确认配置' }}
         </button>
       </div>
       
@@ -1096,6 +1096,7 @@ export default {
     const selectedMapSize = ref(null)
     const selectedFogEnabled = ref(true)  // 默认选择"有"迷雾
     const selectedTheme = ref('random')  // 默认选择"随机"主题
+    const isConfirmingMap = ref(false)   // 防止重复点击确认配置
     
     // 主题选项（用于UI显示）
     const themeOptions = computed(() => {
@@ -3138,7 +3139,9 @@ const currentTurn = computed(() => {
     }
     
     const confirmMapSize = () => {
-      if (!selectedMapSize.value) return
+      if (!selectedMapSize.value || isConfirmingMap.value) return  // ★ 添加锁定检查
+      
+      isConfirmingMap.value = true  // ★ 立即锁定防止重复点击
       console.log('[客户端] 确认地图配置:', selectedMapSize.value, '迷雾:', selectedFogEnabled.value, '主题:', selectedTheme.value)
       socket.value.emit('map_size_selected', { 
         mapSize: selectedMapSize.value, 
