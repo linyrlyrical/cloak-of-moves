@@ -485,6 +485,10 @@
 
       <!-- 游戏内设置按钮 -->
       <div class="game-toolbar">
+        <!-- 单人模式退出按钮 -->
+        <div v-if="isSoloMode && gameState.phase !== 'game_end'" class="game-exit-btn" @click="exitSoloGame" title="退出游戏">
+          🚪
+        </div>
         <div class="game-settings-btn" @click="openSettings" title="设置">
           ⚙️
         </div>
@@ -3166,6 +3170,28 @@ const currentTurn = computed(() => {
       gameState.value.phase = 'connecting'
     }
     
+    // 退出单人模式游戏
+    const exitSoloGame = () => {
+      console.log('[客户端] 退出单人模式游戏')
+      
+      // 播放点击音效
+      audioManager.playClick()
+      
+      // 停止计时器
+      stopTimer()
+      
+      // 停止背景音乐
+      audioManager.stopBgmusic()
+      
+      // 通知服务端退出单人模式
+      if (socket.value) {
+        socket.value.emit('leave_solo_game')
+      }
+      
+      // 调用 backToHome 清空所有状态
+      backToHome()
+    }
+    
     // 回到开始页面
     const backToHome = () => {
       console.log('[客户端] 回到开始页面')
@@ -3196,6 +3222,7 @@ const currentTurn = computed(() => {
       opponentFirstCard.value = null
       currentPlayIndex.value = 0
       selectedMapSize.value = null
+      isConfirmingMap.value = false
       rematchStatus.value = null
       opponentDisconnected.value = false
       disconnectMessage.value = ''
@@ -3503,6 +3530,8 @@ const currentTurn = computed(() => {
       getThemeShapeInfo,
       // 取消等待
       cancelWaiting,
+      // 退出单人模式
+      exitSoloGame,
       // 技能相关
       skillSealed,
       skillSelected,
@@ -5779,6 +5808,28 @@ html, body {
   justify-content: flex-end;
   padding: 0 1rem;
   margin-bottom: 0.5rem;
+  gap: 0.5rem;
+}
+
+/* 单人模式退出按钮 */
+.game-exit-btn {
+  width: 36px;
+  height: 36px;
+  background: rgba(229, 62, 62, 0.9);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.1rem;
+  box-shadow: 0 2px 8px rgba(229, 62, 62, 0.3);
+  transition: all 0.3s;
+}
+
+.game-exit-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(229, 62, 62, 0.5);
+  background: rgba(229, 62, 62, 1);
 }
 
 .game-settings-btn {

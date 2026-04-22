@@ -222,6 +222,28 @@ io.on('connection', (socket) => {
     roomManager.removePlayerFromRoom(socket.id, roomCode)
   })
   
+  // 单人模式退出
+  socket.on('leave_solo_game', () => {
+    console.log(`[单人] ${socket.id} 退出单人模式`)
+    
+    const match = matchManager.getMatchBySocket(socket.id)
+    if (match && match.isSoloMode) {
+      const roomCode = match.roomCode
+      
+      // 清理match（包括AI玩家）
+      match.removePlayer(socket.id)
+      matchManager.removeMatch(roomCode)
+      
+      // 离开Socket.IO房间
+      socket.leave(roomCode)
+      
+      // 清理房间
+      roomManager.removePlayerFromRoom(socket.id, roomCode)
+      
+      console.log(`[单人] 房间 ${roomCode} 已清理`)
+    }
+  })
+  
   // ==================== 聊天系统 ====================
   
   // 发送聊天消息
