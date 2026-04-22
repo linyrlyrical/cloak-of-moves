@@ -609,3 +609,55 @@ export function getMaleCharacters() {
 export function getFemaleCharacters() {
   return Object.values(CHARACTER_SKILLS).filter(c => c.gender === 'female');
 }
+
+// ==================== 聊天系统配置 ====================
+
+// 聊天表情列表（18个常用表情）
+export const CHAT_EMOJIS = [
+  // 情绪类
+  { id: 'happy', emoji: '😊', name: '开心' },
+  { id: 'laugh', emoji: '😂', name: '大笑' },
+  { id: 'think', emoji: '🤔', name: '思考' },
+  { id: 'surprise', emoji: '😮', name: '惊讶' },
+  { id: 'cry', emoji: '😭', name: '哭泣' },
+  { id: 'angry', emoji: '😠', name: '愤怒' },
+  { id: 'awkward', emoji: '😅', name: '尴尬' },
+  { id: 'please', emoji: '🥺', name: '请求' },
+  
+  // 动作类
+  { id: 'thumbsup', emoji: '👍', name: '赞' },
+  { id: 'thumbsdown', emoji: '👎', name: '不赞' },
+  { id: 'clap', emoji: '👏', name: '鼓掌' },
+  { id: 'thanks', emoji: '🙏', name: '感谢' },
+  { id: 'wait', emoji: '✋', name: '等等' },
+  { id: 'handshake', emoji: '🤝', name: '握手' },
+  
+  // 游戏相关
+  { id: 'target', emoji: '🎯', name: '目标' },
+  { id: 'sword', emoji: '⚔️', name: '战斗' },
+  { id: 'trophy', emoji: '🏆', name: '获胜' },
+  { id: 'dice', emoji: '🎲', name: '随机' }
+];
+
+// 快捷消息列表（9条预设短语）
+export const CHAT_QUICK_MESSAGES = [
+  { id: 'hello', text: '你好！', icon: '👋' },
+  { id: 'coming', text: '我要来喽！', icon: '🏃' },
+  { id: 'wait', text: '稍等一下...', icon: '⏳' },
+  { id: 'thinking', text: '我要思考...', icon: '💭' },
+  { id: 'ready', text: '准备好了！', icon: '✅' },
+  { id: 'great_game', text: '精彩对局！', icon: '🌟' },
+  { id: 'thanks_game', text: '感谢对局', icon: '🙏' },
+  { id: 'rematch', text: '再来一局吧！', icon: '🔄' },
+  { id: 'leaving', text: '抱歉，我得离开了', icon: '👋' }
+];
+
+// 聊天消息类型
+export const CHAT_MESSAGE_TYPES = {
+  EMOJI: 'emoji',       // 表情消息
+  QUICK: 'quick',       // 快捷消息
+  TEXT: 'text'          // 自定义文字
+};
+
+// 最大历史消息数量
+export const MAX_CHAT_HISTORY = 15;

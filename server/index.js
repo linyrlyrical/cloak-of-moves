@@ -222,6 +222,41 @@ io.on('connection', (socket) => {
     roomManager.removePlayerFromRoom(socket.id, roomCode)
   })
   
+  // ==================== 聊天系统 ====================
+  
+  // 发送聊天消息
+  socket.on('send_chat_message', (data) => {
+    console.log(`[聊天] ${socket.id} 发送消息:`, data)
+    
+    const match = matchManager.getMatchBySocket(socket.id)
+    if (!match) {
+      console.log(`[聊天] 未找到对局，socket.id: ${socket.id}`)
+      return
+    }
+    
+    // 单人模式（AI对战）不允许聊天
+    if (match.isSoloMode) {
+      console.log(`[聊天] 单人模式，禁止聊天`)
+      return
+    }
+    
+    // 获取发送者的玩家索引（0=玩家1，1=玩家2）
+    const playerIndex = match.getPlayerIndex(socket.id)
+    
+    // 构建消息对象
+    const message = {
+      type: data.type,           // 'emoji' | 'quick' | 'text'
+      content: data.content,     // 表情符号/快捷消息ID/自定义文字
+      sender: socket.id,
+      playerIndex: playerIndex,  // 玩家索引（用于确定消息显示位置）
+      timestamp: Date.now()
+    }
+    
+    // 转发给房间内所有玩家（包括自己）
+    io.to(match.roomCode).emit('chat_message', message)
+    console.log(`[聊天] 消息已转发至房间 ${match.roomCode}, 玩家索引: ${playerIndex}`)
+  })
+  
   // ==================== ID匹配 - 大厅相关事件 ====================
   
   // 注册玩家ID

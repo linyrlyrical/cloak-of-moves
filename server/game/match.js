@@ -707,6 +707,20 @@ class Match {
     }
     
     console.log(`[玩家] 玩家${index + 1}设置为: ${socketId}, 形象: ${avatarId || '默认'}`)
+    
+    // 检查两个玩家是否都已加入
+    if (this.playerStates[0].id && this.playerStates[1].id) {
+      // 进入地图配置阶段，通知房主（玩家1）选择地图大小
+      this.phase = GAME_PHASES.CONFIGURING
+      console.log(`[配置] 两个玩家都已加入，进入地图配置阶段`)
+      
+      // 通知双方进入配置阶段
+      this.io?.to(this.roomCode).emit('enter_configuring', {
+        phase: GAME_PHASES.CONFIGURING,
+        mapSizeOptions: GAME_CONFIG.MAP_SIZE_OPTIONS,
+        creatorId: this.playerStates[0].id  // 房主ID
+      })
+    }
   }
 
   // 更新玩家角色形象（配置阶段实时更新）

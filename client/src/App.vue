@@ -317,12 +317,14 @@
     <!-- 等待界面 -->
     <div v-else-if="gameState.phase === 'waiting'" class="waiting-screen">
       <h2>房间: {{ currentRoom }}</h2>
-      <button @click="copyRoomCode" class="btn btn-copy">📋 复制房间号</button>
-      <p v-if="copySuccess" class="copy-success">已复制到剪贴板！</p>
+      <!-- 只有房主才显示复制房间号按钮 -->
+      <button v-if="isPlayer1" @click="copyRoomCode" class="btn btn-copy">📋 复制房间号</button>
+      <p v-if="isPlayer1 && copySuccess" class="copy-success">已复制到剪贴板！</p>
       
       <button class="btn rules-btn" @click="showRules = true">📜 查看规则</button>
       <button class="btn back-btn" @click="cancelWaiting">← 返回</button>
-      <p class="waiting-text">等待另一名玩家加入...</p>
+      <!-- 根据身份显示不同的等待提示 -->
+      <p class="waiting-text">{{ isPlayer1 ? '等待另一名玩家加入...' : '等待房主配置地图...' }}</p>
       <div class="loading-spinner"></div>
     </div>
     
@@ -870,6 +872,26 @@
         {{ gameMessage }}
       </div>
       
+      <!-- 聊天消息气泡显示区域 -->
+      <div v-if="!isSoloMode && chatMessages.length > 0" class="chat-bubbles-area">
+        <ChatBubble 
+          v-for="(msg, index) in chatMessages" 
+          :key="index"
+          :message="msg"
+          :position="msg.playerIndex === 0 ? 'left' : 'right'"
+          :duration="5000"
+        />
+      </div>
+      
+      <!-- 聊天发送按钮（双人模式） -->
+      <div v-if="!isSoloMode && gameState.phase !== 'game_end'" class="chat-button-area">
+        <ChatBox 
+          :socket="socket"
+          :disabled="isSoloMode"
+          @send-message="sendChatMessage"
+        />
+      </div>
+      
       <!-- 飞牌动画层 -->
       <div v-if="flyingCard" class="flying-card-overlay">
         <div 
@@ -1011,6 +1033,8 @@ import SettingsPanel from './components/SettingsPanel.vue'
 import MatchModeSelect from './components/MatchModeSelect.vue'
 import IdMatchLobby from './components/IdMatchLobby.vue'
 import InvitationDialog from './components/InvitationDialog.vue'
+import ChatBox from './components/ChatBox.vue'
+import ChatBubble from './components/ChatBubble.vue'
 import { GAME_CONFIG, MAP_THEMES, THEME_LIST, THEME_SHAPE_LAYOUTS, countThemeShapeCells, CHARACTER_SKILLS, MAP_EVENTS } from '@shared/constants.js'
 import { getServerUrl } from './config.js'
 import audioManager from './utils/audioManager'
@@ -1024,7 +1048,9 @@ export default {
     SettingsPanel,
     MatchModeSelect,
     IdMatchLobby,
-    InvitationDialog
+    InvitationDialog,
+    ChatBox,
+    ChatBubble
   },
   setup() {
     // Socket连接
@@ -1187,6 +1213,9 @@ export default {
     
     // 设置面板相关
     const showSettings = ref(false)
+    
+    // ==================== 聊天系统相关状态 ====================
+    const chatMessages = ref([])  // 聊天消息列表
     
     // ==================== 防双击锁定状态 ====================
     const isSelectingMatchMode = ref(false)  // 选择匹配模式锁定
@@ -2787,6 +2816,22 @@ const currentTurn = computed(() => {
         console.log('[客户端] 拒绝已确认')
         rematchStatus.value = null
       })
+      
+      // ==================== 聊天系统 ====================
+      
+      // 收到聊天消息
+      socket.value.on('chat_message', (message) => {
+        console.log('[客户端] 收到聊天消息:', message)
+        // 添加到消息列表
+        chatMessages.value.push({
+          ...message,
+          isMine: message.sender === socketId.value
+        })
+        // 限制历史消息数量
+        if (chatMessages.value.length > 15) {
+          chatMessages.value.shift()
+        }
+      })
     }
     
     // 房间操作
@@ -3485,7 +3530,17 @@ const currentTurn = computed(() => {
       hoveredEvent,
       currentMapEvent,
       handleThemeMouseEnter,
-      handleThemeMouseLeave
+      handleThemeMouseLeave,
+      // 聊天系统相关
+      chatMessages,
+      isSoloMode,
+      // 发送聊天消息方法
+      sendChatMessage: (data) => {
+        if (!socket.value || isSoloMode.value) return
+        socket.value.emit('send_chat_message', data)
+      },
+      // 地图配置锁定
+      isConfirmingMap
     }
   }
 }
@@ -6960,5 +7015,38 @@ html, body {
     transform: scale(1.15) rotate(10deg); 
     filter: drop-shadow(0 0 20px rgba(65, 105, 225, 1)) drop-shadow(0 0 8px white);
   }
+}
+
+/* ==================== 聊天消息气泡显示区域样式 ==================== */
+
+.chat-bubbles-area {
+  position: fixed;
+  bottom: 6rem;
+  left: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 999;
+  pointer-events: none;
+}
+
+/* 自己的消息靠左 */
+.chat-bubbles-area :deep(.chat-bubble.left) {
+  align-self: flex-start;
+}
+
+/* 对方的消息靠右 */
+.chat-bubbles-area :deep(.chat-bubble.right) {
+  align-self: flex-end;
+}
+
+/* ==================== 聊天按钮区域样式 ==================== */
+
+.chat-button-area {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 1000;
 }
 </style>
